@@ -1,101 +1,115 @@
-# MacDroid 0.2.1 — Android files in Finder
+<p align="center">
+  <img src="Resources/AppIcon.png" width="112" alt="MacDroid app icon">
+</p>
 
-A native SwiftUI Mac app that exposes Android shared storage in Finder through a local WebDAV bridge backed by ADB. Nothing is installed on Android. Requires macOS 13+ and Android 11+ for cable-free pairing. An authorized USB debugging connection also works.
+# MacDroid
 
-## Use
+**Your Android phone, right in Finder.**
 
-Open `dist/MacDroid.app`. This development build includes Google's ADB executable and notices. It is ad-hoc signed, not notarized for distribution.
+MacDroid is a native macOS app for browsing and managing Android files over **USB or local Wi-Fi**. Mount your phone's shared storage in Finder, then copy files in either direction, create folders, rename items, and recover files deleted through MacDroid.
 
-**Wi-Fi:** Enable Developer options → Wireless debugging on Android. Choose Pair device with pairing code and enter its address and six-digit code in MacDroid. After pairing, use the different connection IP:port from the main Wireless debugging screen. Click Connect, select the phone, then Open Android in Finder.
+No Android app, cloud account, or internet connection is needed for file transfers.
 
-**USB:** Enable USB debugging, connect a data-capable USB cable, and approve the debugging prompt. Select the USB entry, then Open Android in Finder.
+## Features
 
-Keep MacDroid running while using the mounted volume. The menu bar icon stays available even when the main window is closed. Use Eject before disconnecting; wait for transfers or cancel them first.
+- **Finder integration** — manage phone files using familiar Finder windows and drag and drop.
+- **USB and Wi-Fi** — use an authorized USB debugging connection or Android Wireless debugging.
+- **Automatic reconnect** — remember your phone and reconnect when it becomes available. The connection follows the same physical phone across supported transport changes.
+- **Readable device names** — distinguish USB and Wi-Fi connections in the device picker and menu.
+- **Transfer controls** — see progress, speed, and estimated time for each transfer stage, or cancel an active transfer.
+- **Recoverable deletion** — deleted files move to a protected recovery folder on the phone. Restore them to their original location without replacing an existing item.
+- **Menu bar access** — mount, open Finder, eject, access recovery, and manage reconnect without keeping the main window open.
+- **Storage information** — check used space and available capacity on the phone.
 
-## New in 0.2
+## Requirements
 
-1. **Automatic reconnect.** Every five seconds, MacDroid looks for authorized devices, discovers remembered phones through ADB mDNS, and retries a saved Wi-Fi address if necessary. A physical device identity keeps a mounted volume attached to the same phone when an address changes or another transport becomes available. A working transport stays selected; USB is preferred when a replacement connection is needed. The bridge waits up to 20 seconds for a missing phone during an operation. Interrupted file transfers fail rather than being silently replayed. Refresh the Finder folder after reconnection if macOS cached an error. Explicit Eject (including Finder eject) stops remounting. Normal Quit remembers the last mounted phone for the next launch when reconnect is enabled.
-2. **Readable device names.** The device picker and menu show the phone's reported marketing name/model and a USB or Wi-Fi label. The mounted volume uses the phone name; transport changes appear in the app's status.
-3. **Transfer progress and cancellation.** Finder GET/PUT operations are tracked, including receiving uploads, ADB reads/writes, and delivery to Finder. The app shows bytes, stage progress, speed, and an estimated remaining time for the current stage. Cancel terminates the ADB transfer or local HTTP connection. Uploads are staged before replacement; cancelled staging uploads are removed when the phone is reachable. Finder may display an error or offer to retry. These are per-stage estimates, not whole-folder estimates. Finder background reads and metadata writes may also appear in the list. Recently completed transfers can be cleared.
-4. **Recoverable deletion.** Finder DELETE moves files/folders into `/.MacDroid Recovery/` on shared storage, along with their original location and deletion time. Open Recovery in the app or menu bar to restore. Restore never overwrites an existing item and requires the original parent folder to exist. The recovery folder is protected against modification through this bridge. There is no automatic expiry or permanent-empty command yet: recovered files continue using phone storage. File replacements are not versioned/backed up, and deletions made outside MacDroid are not intercepted.
-5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume; active operations must finish or be cancelled.
-6. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
+| Component | Requirement |
+| --- | --- |
+| Mac | macOS 13 or later |
+| Packaged installer | Apple Silicon (M-series) Mac |
+| Wireless connection | Android 11 or later, Wireless debugging enabled, same local network |
+| USB connection | USB debugging enabled, a data-capable cable, and authorization on the phone |
+| Build tools | Xcode Command Line Tools with Swift 5.9 or later |
+| Android connection tools | [Android SDK Platform Tools / ADB](https://developer.android.com/tools/releases/platform-tools) |
 
-## Architecture and limits
+The packaged build is currently locally signed and **not Apple-notarized**. This is an early development release.
 
-- Shared storage (`/sdcard`) only. Android permission restrictions still apply; private app data is not exposed.
-- Built-in macOS WebDAV mounting; no FUSE driver or system extension. The listener binds only to 127.0.0.1 and uses a random URL per session, so it is not exposed to the Wi-Fi network. ADB manages pairing keys.
-- Uploads and downloads are disk-backed. Downloads are staged on the Mac before delivery to Finder, so temporary space for a complete file is needed.
-- ADB file operations are serialized. Large folders can be slow, and Finder can cache directory contents. Automatic reconnect does not resume partially completed transfers.
-- No support yet for arbitrary extended attributes, macOS timestamp preservation, server-side COPY, byte ranges, recursive directory locks, or PROPPATCH. Finder may create `.DS_Store` and `._` metadata files on the phone. Existing directories cannot be replaced by MOVE.
-- File names must be valid on Android's filesystem. Storage figures cover shared internal storage, not a separately selectable SD card.
-- Wireless discovery requires a network that permits device-to-device communication/mDNS; manual IP:port entry remains available. Revoked Android authorizations require pairing again.
+## Connect your phone
 
-## Build
+### Over USB
 
-Only the macOS Command Line Tools are needed:
+1. Enable **Developer options → USB debugging** on Android.
+2. Connect your phone to the Mac and approve the debugging authorization prompt.
+3. Open MacDroid, refresh the device list if needed, and select the **USB** entry.
+4. Click **Open Android in Finder**.
+
+### Over Wi-Fi
+
+1. Connect your Mac and phone to the same Wi-Fi network.
+2. Enable **Developer options → Wireless debugging** on Android.
+3. Choose **Pair device with pairing code**. Enter that dialog's IP address, port, and six-digit code in MacDroid, then click **Pair**.
+4. Close the pairing dialog. Enter the connection IP address and port from the main Wireless debugging screen, then click **Connect**. The connection port differs from the pairing port.
+5. Select the **Wi-Fi** entry and click **Open Android in Finder**.
+
+Already paired? Skip pairing and connect directly. Automatic discovery depends on your local network; manual IP:port entry remains available.
+
+**Keep MacDroid running while using the mounted volume.** Finish or cancel transfers, then use **Eject** before disconnecting your phone.
+
+## Recover a deleted file
+
+Open **Recovery** from the main window or menu bar, select an item, and click **Restore**. MacDroid restores it to its original location only if that location is available and no item would be overwritten.
+
+Recovered deletions remain on the phone and continue using storage until restored. There is currently no automatic expiry or permanent-empty command. Files overwritten by transfers, and files deleted outside MacDroid, are not backed up by this feature.
+
+## Build and install
 
 ```sh
-swift build
-./scripts/build-app.sh debug
-# Optimized build:
+git clone https://github.com/ZeltaStudio/MacDroid.git
+cd MacDroid
 ./scripts/build-app.sh release
 ```
 
-The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected.
+Open `dist/MacDroid.app`, or build a drag-to-Applications installer:
 
-Official Google tools used for the local build:
-https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+```sh
+./scripts/package-dmg.sh
+```
 
-ADB documentation: https://developer.android.com/tools/adb
+The installer is written to `dist/MacDroid-<version>-macos-arm64.dmg`. Open it and drag **MacDroid.app** onto **Applications**. Quit any running copy before replacing it; your saved preferences are preserved.
 
-## Checks
+The build embeds ADB if it is available at `.build/downloads/platform-tools/adb`. Otherwise, install Google's Platform Tools separately and use **Select adb…** in MacDroid. Common Android SDK and Homebrew installation locations are also detected. Bundled tools retain their vendor notices.
 
-The standalone check executable runs without XCTest or full Xcode:
+For a development build, run `swift build` or `./scripts/build-app.sh debug`.
+
+## How it works
+
+```text
+Finder ↔ local WebDAV bridge ↔ ADB ↔ Android shared storage
+```
+
+The SwiftUI app pairs with Android using ADB and exposes shared storage (`/sdcard`) through macOS's built-in WebDAV filesystem. The bridge listens only on `127.0.0.1` and uses a random per-session URL. No filesystem driver or system extension is required.
+
+Android's access restrictions still apply. MacDroid does not expose protected system files or other apps' private data.
+
+## Current limits
+
+- Reconnecting restores access to the phone; it does not resume interrupted file transfers.
+- Progress and remaining-time estimates apply to the displayed transfer stage, not an entire folder operation.
+- Downloads are staged on the Mac before delivery to Finder and need enough temporary disk space for a complete file.
+- File operations are serialized; large directory listings can be slow, and Finder may cache older contents.
+- Extended attributes, full macOS metadata preservation, and separately selectable SD-card storage are not supported yet.
+- Finder may create `.DS_Store` and `._` metadata files. Its own free-space display may be unavailable; use the app's storage indicator.
+
+## Verification and development
+
+Run the standalone Swift checks without full Xcode or XCTest:
 
 ```sh
 swift run MacDroidCheck
-# Include a real macOS WebDAV mount against disposable local files:
-MACDROID_TEST_MOUNT=1 swift run MacDroidCheck
-# Include an already-authorized physical phone:
-MACDROID_ADB_PATH=/absolute/path/to/adb MACDROID_TEST_SERIAL=your-device-serial swift run MacDroidCheck
 ```
 
-Checks cover reconnect selection/phone identity isolation, transport labels, cancellation of subprocesses and HTTP uploads, byte progress, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
+Optional checks exercise actual macOS mounting and an already-authorized Android phone. See the [development guide](docs/DEVELOPMENT.md#checks) for commands and details.
 
-Physical-phone checks create a dedicated `/sdcard/Download/.macdroid-check-UUID` folder. Test files and their recovery records are cleaned up. Existing user files are not changed.
+The current development version has passed 16 checks, including transfer cancellation, deletion and restoration, traversal and overwrite protection, real-phone transfers, Finder mounting/ejection, and routing between authorized USB and Wi-Fi connections on the same phone.
 
-For protocol debugging, launch with `MACDROID_DAV_TRACE=1`. Traces include file paths and the local session URL; don't publish them.
-
-## Source
-
-- `Sources/MacDroid/App.swift`: SwiftUI window, menu bar, connection/mount lifecycle, recovery and transfer views.
-- `Sources/MacDroidCore/Devices.swift`: discovery, identity-based transport selection, reconnecting backend.
-- `Sources/MacDroidCore/Transfers.swift`: progress state, transfer history, cancellation tokens.
-- `Sources/MacDroidCore/Recovery.swift`: protected recovery storage, manifests, restoration.
-- `Sources/MacDroidCore/Storage.swift`: validated capacity parsing.
-- `Sources/MacDroidCore/ADB.swift`: command execution, shell quoting, Android file operations.
-- `Sources/MacDroidCore/WebDAV.swift`: local server, disk-backed transport, Finder protocol.
-- `Tests/MacDroidCoreTests/`: executable checks and disposable backends.
-
-## Installable disk image
-
-```sh
-./scripts/build-app.sh release
-./scripts/package-dmg.sh
-# Optional destination folder:
-./scripts/package-dmg.sh /absolute/output/directory
-```
-
-The DMG contains MacDroid.app, an Applications shortcut, and installation instructions. It includes ADB and the vendor notices. The current package targets Apple Silicon Macs (macOS 13+), is locally signed, and is not notarized. Quit the running development copy before dragging the app into Applications; launch the installed copy afterward. Preferences use the same bundle identifier and are preserved.
-
-## App icon
-
-The Finder/Dock icon uses the same turquoise drive symbol as the sidebar, on a dark rounded tile. Its vector source renderer is `scripts/generate-icon.swift`. Regenerate it with:
-
-```sh
-swift scripts/generate-icon.swift Resources
-iconutil -c icns Resources/AppIcon.iconset -o Resources/AppIcon.icns
-```
-
-The app build embeds `Resources/AppIcon.icns` and declares it in Info.plist before signing.
+See [the development guide](docs/DEVELOPMENT.md) for architecture, source layout, packaging, and icon generation.
