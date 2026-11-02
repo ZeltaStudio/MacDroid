@@ -10,6 +10,12 @@ MacDroid is a native macOS app for browsing and managing Android files over **US
 
 No Android app, cloud account, or internet connection is needed for file transfers.
 
+[Download for Apple Silicon](https://github.com/ZeltaStudio/MacDroid/releases/latest) · [Changelog](CHANGELOG.md) · [Report a bug](https://github.com/ZeltaStudio/MacDroid/issues/new/choose)
+
+[![macOS build and checks](https://github.com/ZeltaStudio/MacDroid/actions/workflows/build.yml/badge.svg)](https://github.com/ZeltaStudio/MacDroid/actions/workflows/build.yml)
+
+![MacDroid connected to an Android phone with storage information and Finder controls](docs/images/macdroid.jpg)
+
 ## Features
 
 - **Finder integration** — manage phone files using familiar Finder windows and drag and drop.
@@ -61,7 +67,13 @@ Open **Recovery** from the main window or menu bar, select an item, and click **
 
 Recovered deletions remain on the phone and continue using storage until restored. There is currently no automatic expiry or permanent-empty command. Files overwritten by transfers, and files deleted outside MacDroid, are not backed up by this feature.
 
-## Build and install
+## Install
+
+Download the DMG from the [latest release](https://github.com/ZeltaStudio/MacDroid/releases/latest), quit any running copy, and drag **MacDroid.app** into **Applications**. The release includes ADB and a SHA-256 checksum. Saved preferences are preserved.
+
+If images appeared incomplete in an older version, update to **0.2.2 or later**, eject the old phone mount, and remount before reopening the images. Finder and Preview can cache earlier partial previews.
+
+## Build from source
 
 ```sh
 git clone https://github.com/ZeltaStudio/MacDroid.git
@@ -110,6 +122,10 @@ swift run MacDroidCheck
 
 Optional checks exercise actual macOS mounting and an already-authorized Android phone. See the [development guide](docs/DEVELOPMENT.md#checks) for commands and details.
 
-The current development version has passed 16 checks, including transfer cancellation, deletion and restoration, traversal and overwrite protection, real-phone transfers, Finder mounting/ejection, and routing between authorized USB and Wi-Fi connections on the same phone.
+Checks cover transfer cancellation, deletion and restoration, traversal and overwrite protection, partial reads and complete JPEG reconstruction, real-phone transfers, Finder mounting/ejection, and routing between authorized USB and Wi-Fi connections on the same phone. Hardware checks are opt-in; standard checks run on pushes and pull requests through GitHub Actions.
 
 See [the development guide](docs/DEVELOPMENT.md) for architecture, source layout, packaging, and icon generation.
+
+## License
+
+MacDroid's source code is available under the [MIT License](LICENSE). Bundled Android tools and icon resources retain their applicable licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).

@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a connection, transfer, preview, or recovery problem.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Explain the problem and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Connect the phone using...
+        2. Open...
+        3. Observe...
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: MacDroid version
+      placeholder: "0.2.2"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: "macOS 15, MacBook Air M2"
+    validations:
+      required: true
+  - type: input
+    id: android
+    attributes:
+      label: Phone model and Android version
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection method
+      options:
+        - Wi-Fi
+        - USB
+        - Both
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Additional details
+      description: For file problems, include the file type and approximate size. Remove personal file names, IP addresses, pairing codes, and private image content before attaching logs or screenshots.

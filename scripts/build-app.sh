@@ -9,6 +9,8 @@ app="$package_dir/MacDroid.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$bin_dir/MacDroid" "$app/Contents/MacOS/MacDroid"
 cp Resources/AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
+cp LICENSE "$app/Contents/Resources/MacDroid-LICENSE.txt"
+cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/Third-Party-Notices.md"
 if [[ -x .build/downloads/platform-tools/adb ]]; then
     cp .build/downloads/platform-tools/adb "$app/Contents/Resources/adb"
     if [[ -f .build/downloads/platform-tools/NOTICE.txt ]]; then
@@ -25,8 +27,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>MacDroid</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon.icns</string>
-<key>CFBundleShortVersionString</key><string>0.2.1</string>
-<key>CFBundleVersion</key><string>3</string>
+<key>CFBundleShortVersionString</key><string>0.2.2</string>
+<key>CFBundleVersion</key><string>4</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSLocalNetworkUsageDescription</key><string>Connect to your Android phone using wireless debugging on your local Wi-Fi.</string>

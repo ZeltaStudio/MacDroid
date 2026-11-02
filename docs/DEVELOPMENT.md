@@ -1,4 +1,4 @@
-# MacDroid 0.2.1 — Android files in Finder
+# MacDroid 0.2.2 — Android files in Finder
 
 A native SwiftUI Mac app that exposes Android shared storage in Finder through a local WebDAV bridge backed by ADB. Nothing is installed on Android. Requires macOS 13+ and Android 11+ for cable-free pairing. An authorized USB debugging connection also works.
 
@@ -27,7 +27,7 @@ Keep MacDroid running while using the mounted volume. The menu bar icon stays av
 - Built-in macOS WebDAV mounting; no FUSE driver or system extension. The listener binds only to 127.0.0.1 and uses a random URL per session, so it is not exposed to the Wi-Fi network. ADB manages pairing keys.
 - Uploads and downloads are disk-backed. Downloads are staged on the Mac before delivery to Finder, so temporary space for a complete file is needed.
 - ADB file operations are serialized. Large folders can be slow, and Finder can cache directory contents. Automatic reconnect does not resume partially completed transfers.
-- No support yet for arbitrary extended attributes, macOS timestamp preservation, server-side COPY, byte ranges, recursive directory locks, or PROPPATCH. Finder may create `.DS_Store` and `._` metadata files on the phone. Existing directories cannot be replaced by MOVE.
+- No support yet for arbitrary extended attributes, macOS timestamp preservation, server-side COPY, recursive directory locks, or PROPPATCH. Finder may create `.DS_Store` and `._` metadata files on the phone. Existing directories cannot be replaced by MOVE.
 - File names must be valid on Android's filesystem. Storage figures cover shared internal storage, not a separately selectable SD card.
 - Wireless discovery requires a network that permits device-to-device communication/mDNS; manual IP:port entry remains available. Revoked Android authorizations require pairing again.
 
@@ -48,6 +48,14 @@ Official Google tools used for the local build:
 https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
 
 ADB documentation: https://developer.android.com/tools/adb
+
+## Image-reading regression checks
+
+Version 0.2.2 adds HTTP single-byte-range support (closed, open-ended, and suffix ranges), cache validators, and graceful response completion. Staged downloads must match the advertised file size before being sent. Image checks reconstruct a generated JPEG from out-of-order ranges and compare actual mounted-phone reads against a direct ADB copy. Test images contain generated noise, not user photos.
+
+```sh
+MACDROID_CHECK_FILTER='image' swift run MacDroidCheck
+```
 
 ## Checks
 

@@ -1,0 +1,35 @@
+name: macOS build and checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Swift build and integration checks
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Show Swift version
+        run: swift --version
+      - name: Build optimized app
+        run: swift build -c release
+      - name: Run standalone checks
+        run: swift run MacDroidCheck
+      - name: Verify app packaging and local signature
+        run: |
+          ./scripts/build-app.sh release
+          codesign --verify --deep --strict dist/MacDroid.app

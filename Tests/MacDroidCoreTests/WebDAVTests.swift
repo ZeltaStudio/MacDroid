@@ -185,6 +185,10 @@ struct CheckRunner {
             ("Safe mount cleanup", suite.testSafeMountCleanup),
             ("Real phone Finder mount", suite.testRealPhoneFinderMount),
             ("Real USB and Wi-Fi handoff", suite.testRealTransportHandoff),
+            ("HTTP byte ranges", suite.testHTTPByteRanges),
+            ("HTTP image validators", suite.testHTTPFileValidators),
+            ("Image range reassembly", suite.testImageRangeReassembly),
+            ("Real phone image integrity", suite.testRealPhoneImageIntegrity),
             ("Finder file lifecycle", suite.testFinderFileLifecycle),
             ("Overwrite and destination protection", suite.testOverwritePreconditionsAndForeignDestinations),
             ("Exclusive locks", suite.testExclusiveLocks),
@@ -194,7 +198,8 @@ struct CheckRunner {
             ("macOS filesystem mount", suite.testSystemWebDAVMount),
             ("Real Android backend", suite.testRealAndroidBackend)
         ]
-        for (name, check) in checks {
+        let filter = ProcessInfo.processInfo.environment["MACDROID_CHECK_FILTER"]
+        for (name, check) in checks where filter == nil || name.localizedCaseInsensitiveContains(filter!) {
             let before = failures
             do {
                 try await suite.setUp()

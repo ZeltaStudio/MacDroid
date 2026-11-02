@@ -97,10 +97,32 @@ public final class WebDAVServer {
             case "GET", "HEAD":
                 guard let entry = try? backend.stat(path) else { throw DAVError(404) }
                 guard !entry.directory else { throw DAVError(405) }
-                if request.method == "HEAD" { return HTTPResponse(200, headers: ["Content-Length": String(entry.size)]) }
+                let representation = HTTPFileRepresentation(entry: entry)
+                var headers = representation.headers
+                if representation.unchanged(headers: request.headers) { return HTTPResponse(304, headers: headers) }
+                headers["Content-Length"] = String(entry.size)
+                if request.method == "HEAD" { return HTTPResponse(200, headers: headers) }
+                let selection = representation.range(headers: request.headers)
+                let offset: UInt64, length: UInt64, status: Int
+                switch selection {
+                case .full: offset = 0; length = entry.size; status = 200
+                case .partial(let start, let count):
+                    offset = start; length = count; status = 206
+                    headers["Content-Range"] = "bytes \(start)-\(start + count - 1)/\(entry.size)"
+                    headers["Content-Length"] = String(count)
+                case .unsatisfiable:
+                    headers["Content-Range"] = "bytes */\(entry.size)"
+                    headers["Content-Length"] = "0"
+                    return HTTPResponse(416, headers: headers)
+                }
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                do { try request.transfer?.cancellation.check(); try backend.download(path, to: file, transfer: request.transfer) } catch { try? FileManager.default.removeItem(at: file); throw error }
-                return HTTPResponse(200, file: file)
+                do {
+                    try request.transfer?.cancellation.check()
+                    try backend.download(path, to: file, transfer: request.transfer)
+                    let actualSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value
+                    guard actualSize == entry.size else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+                } catch { try? FileManager.default.removeItem(at: file); throw error }
+                return HTTPResponse(status, headers: headers, file: file, fileOffset: offset, fileLength: length)
             case "PUT":
                 guard path != "/" else { throw DAVError(403) }
                 try checkLocks(path, request: request)
@@ -165,9 +187,9 @@ struct HTTPRequest {
     func emptyFile() throws -> URL { try Data().write(to: body); return body }
 }
 struct HTTPResponse {
-    let status: Int; var headers: [String: String]; var data: Data; var file: URL?
-    init(_ status: Int, headers: [String: String] = [:], text: String = "", file: URL? = nil) {
-        self.status = status; self.headers = headers; self.data = Data(text.utf8); self.file = file
+    let status: Int; var headers: [String: String]; var data: Data; var file: URL?; var fileOffset: UInt64 = 0; var fileLength: UInt64?
+    init(_ status: Int, headers: [String: String] = [:], text: String = "", file: URL? = nil, fileOffset: UInt64 = 0, fileLength: UInt64? = nil) {
+        self.status = status; self.headers = headers; self.data = Data(text.utf8); self.file = file; self.fileOffset = fileOffset; self.fileLength = fileLength
     }
     init(_ status: Int, headers: [String: String] = [:], xml: String) {
         self.init(status, headers: headers.merging(["Content-Type": "application/xml; charset=utf-8"]) { _, new in new }, text: xml)
@@ -183,6 +205,8 @@ private final class HTTPClient {
     var cancellationTimer: DispatchSourceTimer?
     var completedResponse = false
     var sentBytes: UInt64 = 0
+    var responseRemaining: UInt64 = 0
+    var finishTimeout: DispatchWorkItem?
     var buffer = Data(); var headers: [String: String] = [:]; var method = ""; var target = ""
     let body = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     var writer: FileHandle?; var reader: FileHandle?; var responseFile: URL?
@@ -208,6 +232,7 @@ private final class HTTPClient {
     func close() {
         guard !closed else { return }; closed = true
         cancellationTimer?.cancel(); cancellationTimer = nil
+        finishTimeout?.cancel(); finishTimeout = nil
         if !completedResponse { transfer?.finish("Connection interrupted") }
         connection.cancel(); try? writer?.close(); try? reader?.close()
         try? FileManager.default.removeItem(at: body)
@@ -303,14 +328,21 @@ private final class HTTPClient {
         if let file = response.file {
             do {
                 reader = try FileHandle(forReadingFrom: file)
-                let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value
-                transfer?.stage("Sending to Finder", total: size)
-                response.headers["Content-Length"] = String((try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value ?? 0)
+                let size = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value ?? 0
+                guard response.fileOffset <= size else { throw AppError("File offset is outside the downloaded file.") }
+                let length = response.fileLength ?? (size - response.fileOffset)
+                guard length <= size - response.fileOffset else { throw AppError("Downloaded file is incomplete.") }
+                try reader?.seek(toOffset: response.fileOffset)
+                responseRemaining = length
+                transfer?.stage("Sending to Finder", total: length)
+                response.headers["Content-Length"] = String(length)
             } catch { close(); return }
         } else if response.headers["Content-Length"] == nil { response.headers["Content-Length"] = String(response.data.count) }
+        if response.status == 204 || response.status == 304 { response.headers.removeValue(forKey: "Content-Length") }
+        response.headers["Date"] = HTTPFileRepresentation.dateString(Date())
         response.headers["Connection"] = "close"
         response.headers["Content-Type"] = response.headers["Content-Type"] ?? "application/octet-stream"
-        let reasons = [200:"OK", 201:"Created", 204:"No Content", 207:"Multi-Status", 400:"Bad Request", 403:"Forbidden", 404:"Not Found", 405:"Method Not Allowed", 409:"Conflict", 412:"Precondition Failed", 415:"Unsupported Media Type", 423:"Locked", 431:"Request Header Fields Too Large", 500:"Internal Server Error", 501:"Not Implemented", 503:"Service Unavailable", 507:"Insufficient Storage"]
+        let reasons = [200:"OK", 201:"Created", 204:"No Content", 206:"Partial Content", 207:"Multi-Status", 304:"Not Modified", 400:"Bad Request", 403:"Forbidden", 404:"Not Found", 405:"Method Not Allowed", 409:"Conflict", 412:"Precondition Failed", 415:"Unsupported Media Type", 416:"Range Not Satisfiable", 423:"Locked", 431:"Request Header Fields Too Large", 500:"Internal Server Error", 501:"Not Implemented", 503:"Service Unavailable", 507:"Insufficient Storage"]
         let head = "HTTP/1.1 \(response.status) \(reasons[response.status, default: "Error"])\r\n" + response.headers.map { "\($0): \($1)\r\n" }.joined() + "\r\n"
         var initial = Data(head.utf8)
         if method != "HEAD" { initial.append(response.data) }
@@ -318,19 +350,44 @@ private final class HTTPClient {
             guard let self else { return }
             if error != nil { self.close() }
             else if self.method == "HEAD" || self.reader == nil {
-                self.completedResponse = true; self.transfer?.finish(); self.close()
+                self.finishResponse()
             } else { self.sendFileChunk() }
         })
+    }
+    func finishResponse() {
+        // Send a TCP write-close after the body, then wait for the client's close. Cancelling
+        // the connection immediately can discard bytes still buffered in the protocol stack.
+        connection.send(content: nil, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { [weak self] error in
+            guard let self, !self.closed else { return }
+            if error != nil { self.close(); return }
+            self.completedResponse = true; self.transfer?.finish()
+            let timeout = DispatchWorkItem { [weak self] in self?.close() }
+            self.finishTimeout = timeout
+            self.queue.asyncAfter(deadline: .now() + 5, execute: timeout)
+            self.waitForPeerClose()
+        })
+    }
+    func waitForPeerClose() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] _, _, complete, error in
+            guard let self, !self.closed else { return }
+            if complete || error != nil { self.close() } else { self.waitForPeerClose() }
+        }
     }
     func sendFileChunk() {
         do {
             try transfer?.cancellation.check()
-            guard let data = try reader?.read(upToCount: 256 * 1024), !data.isEmpty else {
-                completedResponse = true; transfer?.finish(); close(); return
+            if responseRemaining == 0 { finishResponse(); return }
+            guard let data = try reader?.read(upToCount: Int(min(responseRemaining, 256 * 1024))), !data.isEmpty else {
+                transfer?.finish("Incomplete download"); close(); return
             }
             connection.send(content: data, completion: .contentProcessed { [weak self] error in
-                if error != nil { self?.close() }
-                else { self?.sentBytes += UInt64(data.count); if let self { self.transfer?.progress(self.sentBytes, phase: "Sending to Finder") }; self?.sendFileChunk() }
+                guard let self else { return }
+                if error != nil { self.close() }
+                else {
+                    self.sentBytes += UInt64(data.count); self.responseRemaining -= UInt64(data.count)
+                    self.transfer?.progress(self.sentBytes, phase: "Sending to Finder")
+                    self.sendFileChunk()
+                }
             })
         } catch { close() }
     }
