@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Empty Recovery, with confirmation, from the recovery window and the menu bar. Permanently delete one recovered item from the list. Optionally delete recovered items older than a chosen number of days; that setting is off unless you turn it on.
+
 ## 0.2.2 — 2026-11-02
 
 ### Fixed

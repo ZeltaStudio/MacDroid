@@ -52,6 +52,23 @@ final class AppModel: ObservableObject {
     private var recoveryStore: RecoveryStore?
     @Published var recoveryItems: [RecoveryItem] = []
     @Published var showingRecovery = false
+    @Published var recoveryExpiryEnabled = UserDefaults.standard.bool(forKey: "recoveryExpiryEnabled") {
+        didSet { UserDefaults.standard.set(recoveryExpiryEnabled, forKey: "recoveryExpiryEnabled"); applyRecoveryExpiry(force: true) }
+    }
+    @Published var recoveryExpiryDays: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "recoveryExpiryDays")
+        return stored == 0 ? 30 : min(RecoveryRetention.maximumDays, max(RecoveryRetention.minimumDays, stored))
+    }() {
+        didSet {
+            let clamped = min(RecoveryRetention.maximumDays, max(RecoveryRetention.minimumDays, recoveryExpiryDays))
+            if clamped != recoveryExpiryDays { recoveryExpiryDays = clamped; return }
+            UserDefaults.standard.set(clamped, forKey: "recoveryExpiryDays")
+            applyRecoveryExpiry(force: true)
+        }
+    }
+    private var expiryRunning = false
+    private var expiryAgain = false
+    private var lastExpiry = Date.distantPast
     @Published var storage: StorageInfo?
     private var storageLoading = false
     private var storageChecked = Date.distantPast
@@ -157,6 +174,7 @@ final class AppModel: ObservableObject {
                         if let connection {
                             self.mountedDevice = connection; self.selected = connection.endpoint
                             self.refreshStorage(device: connection)
+                            self.applyRecoveryExpiry(force: false)
                             if !self.busy { self.status = "\(connection.label) is mounted. Keep MacDroid running while using Finder." }
                         } else if !self.busy { self.storage = nil; self.status = self.autoReconnect ? "Phone disconnected. Waiting to reconnect…" : "Phone disconnected. Reconnect or eject the volume." }
                     } else if self.autoReconnect, let identity = self.desiredDeviceID,
@@ -199,6 +217,7 @@ final class AppModel: ObservableObject {
                                 self.mountedDevice = device
                                 self.storageChecked = .distantPast; self.refreshStorage(device: device)
                                 self.desiredDeviceID = device.hardwareID
+                                self.applyRecoveryExpiry(force: false)
                                 self.knownIDs.insert(device.hardwareID)
                                 UserDefaults.standard.set(Array(self.knownIDs), forKey: "knownDeviceIDs")
                                 UserDefaults.standard.set(device.hardwareID, forKey: "resumeDeviceID")
@@ -279,6 +298,55 @@ final class AppModel: ObservableObject {
     func restore(_ item: RecoveryItem) {
         guard let store = recoveryStore, !busy else { return }
         perform("Restoring \(item.name)…", work: { try store.restore(item); return "Restored \(item.originalPath)." }, done: { self.loadRecovery() })
+    }
+    func purge(_ item: RecoveryItem) {
+        guard let store = recoveryStore, !busy else { return }
+        perform("Deleting \(item.name)…", work: { try store.purge(item); return "Permanently deleted \(item.name)." }, done: { self.loadRecovery() })
+    }
+    func emptyRecovery() {
+        guard let store = recoveryStore, !busy else { return }
+        perform("Emptying recovery…", work: {
+            let count = try store.empty()
+            if count == 1 { return "Permanently deleted 1 recovered item." }
+            return count == 0 ? "Recovery is already empty." : "Permanently deleted \(count) recovered items."
+        }, done: { self.loadRecovery() })
+    }
+    func confirmEmptyRecovery() {
+        guard recoveryStore != nil, !busy else { return }
+        showWindow()
+        let alert = NSAlert()
+        alert.messageText = "Empty Recovery?"
+        alert.informativeText = "Permanently delete every recovered item from the phone. This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Empty Recovery")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        emptyRecovery()
+    }
+    func applyRecoveryExpiry(force: Bool) {
+        let due = force || expiryAgain
+        guard recoveryExpiryEnabled, let store = recoveryStore else { return }
+        if busy || expiryRunning || transferCenter.snapshots.contains(where: \.active) {
+            if due { expiryAgain = true }
+            return
+        }
+        if !due && Date().timeIntervalSince(lastExpiry) < 3600 { return }
+        expiryAgain = false
+        expiryRunning = true
+        lastExpiry = Date()
+        let retention = RecoveryRetention(enabled: true, days: recoveryExpiryDays)
+        DispatchQueue.global(qos: .utility).async {
+            let result = Result { try store.purgeExpired(retention: retention) }
+            DispatchQueue.main.async {
+                self.expiryRunning = false
+                if case .success(let count) = result, count > 0 {
+                    let noun = count == 1 ? "item" : "items"
+                    self.status = "Permanently deleted \(count) recovered \(noun) older than \(retention.days) days."
+                    if self.showingRecovery { self.loadRecovery() }
+                }
+                if self.expiryAgain { self.applyRecoveryExpiry(force: false) }
+            }
+        }
     }
     func openRecovery() { showingRecovery = true; loadRecovery() }
     func openFinder() {
@@ -367,7 +435,7 @@ struct ContentView: View {
                                     Button(model.mountPath == nil ? "Stop bridge" : "Eject") { model.stop() }.disabled(model.busy || model.transfers.contains(where: \.active))
                                 }
                             }
-                            Text("Deleted files move to MacDroid Recovery on the phone. Restore them using Recovery. Replaced files are not backed up. Private app data stays subject to Android permissions.").font(.caption).foregroundStyle(.secondary)
+                            Text("Deleted files move to MacDroid Recovery on the phone. Restore them, or permanently delete them, from Recovery. Automatic deletion is off unless you set an age limit. Replaced files are not backed up.").font(.caption).foregroundStyle(.secondary)
                         }.padding(8)
                     }
                     TransferList(model: model)
@@ -430,15 +498,20 @@ struct TransferList: View {
 
 struct RecoveryView: View {
     @ObservedObject var model: AppModel
+    @State private var confirmingEmpty = false
+    @State private var pendingDelete: RecoveryItem?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Recovered deletions").font(.title2.bold())
                 Spacer()
                 Button("Refresh") { model.loadRecovery() }.disabled(model.busy)
+                Button("Empty Recovery") { confirmingEmpty = true }.disabled(model.busy || model.recoveryItems.isEmpty)
                 Button("Done") { model.showingRecovery = false }
             }
-            Text("Files stay on your phone until restored. Restoring uses the original location and never replaces an existing file.").foregroundStyle(.secondary)
+            Text("Recovered files stay on the phone until you restore them or permanently delete them. Automatic deletion stays off until you set an age limit.").foregroundStyle(.secondary)
+            Toggle("Delete items older than \(model.recoveryExpiryDays) days", isOn: $model.recoveryExpiryEnabled).disabled(model.mountURL == nil)
+            Stepper("Age limit: \(model.recoveryExpiryDays) days", value: $model.recoveryExpiryDays, in: RecoveryRetention.minimumDays...RecoveryRetention.maximumDays)
             if model.busy { ProgressView() }
             if model.recoveryItems.isEmpty && !model.busy { Text("No recoverable deletions.").foregroundStyle(.secondary) }
             List(model.recoveryItems) { item in
@@ -451,10 +524,27 @@ struct RecoveryView: View {
                     }
                     Spacer()
                     Button("Restore") { model.restore(item) }.disabled(model.busy)
+                    Button("Delete") { pendingDelete = item }.disabled(model.busy)
                 }.padding(.vertical, 5)
             }
             if let error = model.error { Text(error).foregroundStyle(.red).font(.callout).textSelection(.enabled) }
-        }.padding(24).frame(width: 660, height: 480)
+        }
+        .confirmationDialog("Empty Recovery?", isPresented: $confirmingEmpty, titleVisibility: .visible) {
+            Button("Empty Recovery", role: .destructive) { model.emptyRecovery() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Permanently delete every recovered item from the phone. This cannot be undone.")
+        }
+        .confirmationDialog("Permanently delete this recovered item?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
+            Button("Delete Permanently", role: .destructive) {
+                if let item = pendingDelete { model.purge(item) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(pendingDelete.map { "\($0.name) will be removed from the phone and cannot be restored." } ?? "This cannot be undone.")
+        }
+        .padding(24).frame(width: 700, height: 560)
     }
 }
 
@@ -471,6 +561,7 @@ struct MacDroidMenu: View {
         if model.mountURL != nil {
             Button("Open in Finder") { model.openFinder() }.disabled(model.busy)
             Button("Recovery…") { openWindow(id: "main"); model.showWindow(); model.openRecovery() }.disabled(model.busy)
+            Button("Empty Recovery…") { model.confirmEmptyRecovery() }.disabled(model.busy)
             Button("Eject") { model.stop() }.disabled(model.busy || !active.isEmpty)
         } else {
             ForEach(model.devices) { device in

@@ -23,8 +23,8 @@ No Android app, cloud account, or internet connection is needed for file transfe
 - **Automatic reconnect** — remember your phone and reconnect when it becomes available. The connection follows the same physical phone across supported transport changes.
 - **Readable device names** — distinguish USB and Wi-Fi connections in the device picker and menu.
 - **Transfer controls** — see progress, speed, and estimated time for each transfer stage, or cancel an active transfer.
-- **Recoverable deletion** — deleted files move to a protected recovery folder on the phone. Restore them to their original location without replacing an existing item.
-- **Menu bar access** — mount, open Finder, eject, access recovery, and manage reconnect without keeping the main window open.
+- **Recoverable deletion** — deleted files move to a protected recovery folder on the phone. Restore them without replacing an existing item, permanently delete one item, or empty recovery. Optional automatic deletion removes items older than a chosen number of days and is off by default.
+- **Menu bar access** — mount, open Finder, eject, access recovery, empty recovery, and manage reconnect without keeping the main window open.
 - **Storage information** — check used space and available capacity on the phone.
 
 ## Requirements
@@ -65,7 +65,11 @@ Already paired? Skip pairing and connect directly. Automatic discovery depends o
 
 Open **Recovery** from the main window or menu bar, select an item, and click **Restore**. MacDroid restores it to its original location only if that location is available and no item would be overwritten.
 
-Recovered deletions remain on the phone and continue using storage until restored. There is currently no automatic expiry or permanent-empty command. Files overwritten by transfers, and files deleted outside MacDroid, are not backed up by this feature.
+**Delete** permanently removes that one recovered item. **Empty Recovery** permanently removes every recovered item after you confirm. The menu bar has the same Empty Recovery command. Neither action can be undone.
+
+**Delete items older than N days** is off until you turn it on. N is a number of 24-hour periods from 1 to 365, and the default shown is 30 days. While it is on, MacDroid removes recovered items older than that age about once an hour and shortly after the phone is mounted. Turning it off leaves the remaining items in place.
+
+Files overwritten by transfers, and files deleted outside MacDroid, are not backed up by this feature.
 
 ## Install
 
