@@ -167,6 +167,9 @@ func XCTAssertEqual<T: Equatable>(_ left: T, _ right: T, _ message: String = "",
 func XCTAssertTrue(_ value: Bool, file: StaticString = #filePath, line: UInt = #line) { XCTAssertEqual(value, true, file: file, line: line) }
 func XCTAssertFalse(_ value: Bool, file: StaticString = #filePath, line: UInt = #line) { XCTAssertEqual(value, false, file: file, line: line) }
 func XCTUnwrap<T>(_ value: T?) throws -> T { guard let value else { throw AppError("Expected non-nil value") }; return value }
+func XCTAssertNil<T>(_ value: T?, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    if value != nil { failures += 1; print("FAIL \(file):\(line): expected nil \(message)") }
+}
 func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T, _ message: String) {
     do { _ = try expression(); failures += 1; print("FAIL expected rejection: \(message)") } catch {}
 }
