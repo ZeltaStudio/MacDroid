@@ -1,7 +1,7 @@
 import Foundation
 import MacDroidCore
 
-final class MemoryBackend: FileBackend {
+class MemoryBackend: FileBackend {
     var files: [String: Data]
     var modified: [String: Date]
     var fullCalls = 0
@@ -94,7 +94,9 @@ extension WebDAVTests {
         try safe.downloadRange("/a.bin", offset: 10, length: 4, to: copy, transfer: nil)
         defer { try? FileManager.default.removeItem(at: copy) }
         XCTAssertEqual(try Data(contentsOf: copy), Data(repeating: 3, count: 4))
-        XCTAssertEqual(memory.rangeCalls, [(10, 4)])
+        XCTAssertEqual(memory.rangeCalls.count, 1)
+        XCTAssertEqual(memory.rangeCalls[0].0, 10)
+        XCTAssertEqual(memory.rangeCalls[0].1, 4)
         XCTAssertEqual(memory.fullCalls, 0)
     }
 
@@ -112,7 +114,9 @@ extension WebDAVTests {
         XCTAssertEqual(prefixResponse.value(forHTTPHeaderField: "Content-Range"), "bytes 0-1023/6000000")
         XCTAssertEqual(prefixResponse.value(forHTTPHeaderField: "Content-Length"), "1024")
         XCTAssertEqual(prefix, video.subdata(in: 0..<1024))
-        XCTAssertEqual(clips.rangeCalls, [(0, ContentCache.readAhead)])
+        XCTAssertEqual(clips.rangeCalls.count, 1)
+        XCTAssertEqual(clips.rangeCalls[0].0, 0)
+        XCTAssertEqual(clips.rangeCalls[0].1, ContentCache.readAhead)
         XCTAssertEqual(clips.fullCalls, 0)
         let (middle, _) = try await fileGET("DCIM/clip.mp4", headers: ["Range": "bytes=2000-2099"])
         XCTAssertEqual(middle, video.subdata(in: 2000..<2100))
