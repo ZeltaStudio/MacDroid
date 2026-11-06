@@ -6,6 +6,16 @@ if [[ ! -x "$app/Contents/MacOS/MacDroid" ]]; then
     echo 'Build the release first: ./scripts/build-app.sh release' >&2
     exit 1
 fi
+./scripts/fetch-scrcpy.sh
+for required in scrcpy scrcpy-server scrcpy-LICENSE.txt; do
+    if [[ ! -e "$app/Contents/Resources/$required" ]]; then
+        echo "The app is missing bundled scrcpy ($required). Rebuild with ./scripts/build-app.sh release" >&2
+        exit 1
+    fi
+done
+cmp -s .build/downloads/scrcpy/scrcpy-server "$app/Contents/Resources/scrcpy-server"
+scrcpy_arch="$(/usr/bin/lipo -archs "$app/Contents/Resources/scrcpy")"
+if [[ "$scrcpy_arch" != arm64 ]]; then echo "Unexpected scrcpy architecture: $scrcpy_arch" >&2; exit 1; fi
 codesign --verify --deep --strict "$app"
 version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")"
 architecture="$(/usr/bin/lipo -archs "$app/Contents/MacOS/MacDroid")"
@@ -26,7 +36,8 @@ INSTALL
 4. Eject this disk image when installation is complete.
 
 Requires macOS 13 or later and an Apple Silicon (M-series) Mac.
-Android Platform Tools (ADB) are included; no Android app is required.
+Android Platform Tools (ADB) and scrcpy are included. No Android app or
+separate Homebrew install is required for file access or screen mirroring.
 Use USB debugging for a cable connection, or Wireless debugging for Wi-Fi.
 Your remembered phone and preferences stay available after installation.
 
@@ -38,6 +49,7 @@ are not backed up. Keep the app running while using the phone in Finder.
 
 Bundled Android Platform Tools notices are inside the app at
 Contents/Resources/Platform-Tools-NOTICE.txt.
+The bundled scrcpy license is Contents/Resources/scrcpy-LICENSE.txt.
 TEXT
 image="$output_dir/MacDroid-$version-macos-arm64.dmg"
 hdiutil create -ov -format UDZO -volname "MacDroid $version" -srcfolder "$stage" "$image"

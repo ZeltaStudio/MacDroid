@@ -95,6 +95,9 @@ public final class ReconnectingBackend: FileBackend, @unchecked Sendable {
     public func stat(_ path: String) throws -> RemoteEntry { try connected().stat(path) }
     public func list(_ path: String) throws -> [RemoteEntry] { try connected().list(path) }
     public func download(_ path: String, to local: URL, transfer: TransferOperation?) throws { try connected().download(path, to: local, transfer: transfer) }
+    public func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws {
+        try connected().downloadRange(path, offset: offset, length: length, to: local, transfer: transfer)
+    }
     public func upload(_ local: URL, to path: String, transfer: TransferOperation?) throws { try connected().upload(local, to: path, transfer: transfer) }
     public func mkdir(_ path: String) throws { try connected().mkdir(path) }
     public func delete(_ path: String) throws { try connected().delete(path) }

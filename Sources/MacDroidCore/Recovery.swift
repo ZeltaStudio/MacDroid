@@ -6,6 +6,25 @@ public struct RecoveryItem: Identifiable, Codable, Equatable, Sendable {
     public let deletedAt: Date
     public let directory: Bool
     public var name: String { (originalPath as NSString).lastPathComponent }
+    public init(id: String, originalPath: String, deletedAt: Date, directory: Bool) {
+        self.id = id; self.originalPath = originalPath; self.deletedAt = deletedAt; self.directory = directory
+    }
+}
+
+/// Optional age limit for recovered deletions. Disabled leaves every item on the phone.
+public struct RecoveryRetention: Equatable, Sendable {
+    public static let minimumDays = 1
+    public static let maximumDays = 365
+    public let enabled: Bool
+    public let days: Int
+    public init(enabled: Bool, days: Int) {
+        self.enabled = enabled
+        self.days = min(Self.maximumDays, max(Self.minimumDays, days))
+    }
+    public func expires(deletedAt: Date, now: Date = Date()) -> Bool {
+        guard enabled else { return false }
+        return deletedAt.addingTimeInterval(TimeInterval(days) * 86_400) <= now
+    }
 }
 
 public final class RecoveryStore: @unchecked Sendable {
@@ -72,6 +91,34 @@ public final class RecoveryStore: @unchecked Sendable {
         // Only metadata remains after a successful move. Cleanup failure must not undo a restored file.
         try? backend.delete(container(item.id))
     }
+    /// Permanently removes one recovered item. The id must be the record’s own UUID.
+    public func purge(_ item: RecoveryItem) throws {
+        lock.lock(); defer { lock.unlock() }
+        guard UUID(uuidString: item.id) != nil else { throw AppError("Invalid recovery record.") }
+        let folder = container(item.id)
+        if (try? backend.stat(folder)) == nil { return }
+        try backend.delete(folder)
+    }
+    /// Permanently removes every recovery record. Other phone files are left in place.
+    public func empty() throws -> Int {
+        lock.lock(); defer { lock.unlock() }
+        guard (try? backend.stat(Self.root)) != nil else { return 0 }
+        var count = 0
+        for entry in try backend.list(Self.root) where entry.directory {
+            let id = (entry.path as NSString).lastPathComponent
+            guard UUID(uuidString: id) != nil else { continue }
+            try backend.delete(entry.path)
+            count += 1
+        }
+        return count
+    }
+    /// Deletes recovered items older than the retention period. A disabled policy deletes nothing.
+    public func purgeExpired(retention: RecoveryRetention, now: Date = Date()) throws -> Int {
+        guard retention.enabled else { return 0 }
+        let stale = try items().filter { retention.expires(deletedAt: $0.deletedAt, now: now) }
+        for item in stale { try purge(item) }
+        return stale.count
+    }
 }
 
 public final class RecoverableBackend: FileBackend {
@@ -85,6 +132,9 @@ public final class RecoverableBackend: FileBackend {
     public func stat(_ path: String) throws -> RemoteEntry { try base.stat(path) }
     public func list(_ path: String) throws -> [RemoteEntry] { try base.list(path) }
     public func download(_ path: String, to local: URL, transfer: TransferOperation?) throws { try base.download(path, to: local, transfer: transfer) }
+    public func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws {
+        try base.downloadRange(path, offset: offset, length: length, to: local, transfer: transfer)
+    }
     public func upload(_ local: URL, to path: String, transfer: TransferOperation?) throws { try writable(path); try base.upload(local, to: path, transfer: transfer) }
     public func mkdir(_ path: String) throws { try writable(path); try base.mkdir(path) }
     public func delete(_ path: String) throws { _ = try recovery.recover(path) }

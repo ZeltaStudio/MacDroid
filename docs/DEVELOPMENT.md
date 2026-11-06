@@ -1,4 +1,4 @@
-# MacDroid 0.2.2 — Android files in Finder
+# MacDroid 0.3.0 — Android files in Finder
 
 A native SwiftUI Mac app that exposes Android shared storage in Finder through a local WebDAV bridge backed by ADB. Nothing is installed on Android. Requires macOS 13+ and Android 11+ for cable-free pairing. An authorized USB debugging connection also works.
 
@@ -17,15 +17,16 @@ Keep MacDroid running while using the mounted volume. The menu bar icon stays av
 1. **Automatic reconnect.** Every five seconds, MacDroid looks for authorized devices, discovers remembered phones through ADB mDNS, and retries a saved Wi-Fi address if necessary. A physical device identity keeps a mounted volume attached to the same phone when an address changes or another transport becomes available. A working transport stays selected; USB is preferred when a replacement connection is needed. The bridge waits up to 20 seconds for a missing phone during an operation. Interrupted file transfers fail rather than being silently replayed. Refresh the Finder folder after reconnection if macOS cached an error. Explicit Eject (including Finder eject) stops remounting. Normal Quit remembers the last mounted phone for the next launch when reconnect is enabled.
 2. **Readable device names.** The device picker and menu show the phone's reported marketing name/model and a USB or Wi-Fi label. The mounted volume uses the phone name; transport changes appear in the app's status.
 3. **Transfer progress and cancellation.** Finder GET/PUT operations are tracked, including receiving uploads, ADB reads/writes, and delivery to Finder. The app shows bytes, stage progress, speed, and an estimated remaining time for the current stage. Cancel terminates the ADB transfer or local HTTP connection. Uploads are staged before replacement; cancelled staging uploads are removed when the phone is reachable. Finder may display an error or offer to retry. These are per-stage estimates, not whole-folder estimates. Finder background reads and metadata writes may also appear in the list. Recently completed transfers can be cleared.
-4. **Recoverable deletion.** Finder DELETE moves files/folders into `/.MacDroid Recovery/` on shared storage, along with their original location and deletion time. Open Recovery in the app or menu bar to restore. Restore never overwrites an existing item and requires the original parent folder to exist. The recovery folder is protected against modification through this bridge. There is no automatic expiry or permanent-empty command yet: recovered files continue using phone storage. File replacements are not versioned/backed up, and deletions made outside MacDroid are not intercepted.
-5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume; active operations must finish or be cancelled.
-6. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
+4. **Recoverable deletion.** Finder DELETE moves files/folders into `/.MacDroid Recovery/` on shared storage, along with their original location and deletion time. Open Recovery in the app or menu bar to restore. Restore never overwrites an existing item and requires the original parent folder to exist. The recovery folder is protected against modification through this bridge. Empty Recovery permanently deletes every recovery record after confirmation, and each row can be deleted on its own. An optional age limit, off by default, permanently deletes items older than N days (1–365). File replacements are not versioned/backed up, and deletions made outside MacDroid are not intercepted.
+5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, empty recovery, mirror the screen, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume and stops mirroring; active operations must finish or be cancelled.
+6. **Screen mirroring.** Mirror screen launches scrcpy with the selected phone’s serial and this app’s ADB. The scrcpy window shows the display and accepts keyboard and pointer control. A packaged app prefers the scrcpy and scrcpy-server embedded in its Resources. Otherwise MacDroid uses Homebrew, MacPorts, `/usr/local`, or `~/bin`. The server jar is passed through `SCRCPY_SERVER_PATH` when it sits next to that executable or in the Homebrew prefix. A missing tool produces an explanation instead of a failed launch. Finder mounting does not require scrcpy.
+7. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
 
 ## Architecture and limits
 
 - Shared storage (`/sdcard`) only. Android permission restrictions still apply; private app data is not exposed.
 - Built-in macOS WebDAV mounting; no FUSE driver or system extension. The listener binds only to 127.0.0.1 and uses a random URL per session, so it is not exposed to the Wi-Fi network. ADB manages pairing keys.
-- Uploads and downloads are disk-backed. Downloads are staged on the Mac before delivery to Finder, so temporary space for a complete file is needed.
+- Uploads and full-file downloads are disk-backed. A complete download is staged on the Mac before delivery to Finder, so temporary space for that file is needed. Finder thumbnails are HTTP range reads: macOS WebDAV does not request a thumbnail property, and substituting a smaller image would break opening the file. Photos up to 8 MB are pulled once and cached. Larger files are read with a bounded `adb exec-out` window (about 1 MB of read-ahead) keyed by path, size, and modification time. A failed window falls back to a full pull only for files up to 32 MB.
 - ADB file operations are serialized. Large folders can be slow, and Finder can cache directory contents. Automatic reconnect does not resume partially completed transfers.
 - No support yet for arbitrary extended attributes, macOS timestamp preservation, server-side COPY, recursive directory locks, or PROPPATCH. Finder may create `.DS_Store` and `._` metadata files on the phone. Existing directories cannot be replaced by MOVE.
 - File names must be valid on Android's filesystem. Storage figures cover shared internal storage, not a separately selectable SD card.
@@ -42,16 +43,19 @@ swift build
 ./scripts/build-app.sh release
 ```
 
-The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected.
+The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected. A release build runs `scripts/fetch-scrcpy.sh`, which downloads the official scrcpy macOS arm64 archive and `scrcpy-server` for the pinned version, checks both against the checksums in that script, and stores them in `.build/downloads/scrcpy/`. The app bundle then receives `scrcpy`, `scrcpy-server`, and `scrcpy-LICENSE.txt`. The adb binary shipped inside the scrcpy archive is not used.
 
 Official Google tools used for the local build:
 https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+
+Official scrcpy release used for packaging:
+https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-aarch64-v5.0.1.tar.gz
 
 ADB documentation: https://developer.android.com/tools/adb
 
 ## Image-reading regression checks
 
-Version 0.2.2 adds HTTP single-byte-range support (closed, open-ended, and suffix ranges), cache validators, and graceful response completion. Staged downloads must match the advertised file size before being sent. Image checks reconstruct a generated JPEG from out-of-order ranges and compare actual mounted-phone reads against a direct ADB copy. Test images contain generated noise, not user photos.
+Version 0.2.2 adds HTTP single-byte-range support (closed, open-ended, and suffix ranges), cache validators, and graceful response completion. Staged downloads must match the advertised file size before being sent. Preview caching serves those same bytes back; it does not change the reconstruction checks. Image checks reconstruct a generated JPEG from out-of-order ranges and compare actual mounted-phone reads against a direct ADB copy. Test images contain generated noise, not user photos.
 
 ```sh
 MACDROID_CHECK_FILTER='image' swift run MacDroidCheck
@@ -69,7 +73,7 @@ MACDROID_TEST_MOUNT=1 swift run MacDroidCheck
 MACDROID_ADB_PATH=/absolute/path/to/adb MACDROID_TEST_SERIAL=your-device-serial swift run MacDroidCheck
 ```
 
-Checks cover reconnect selection/phone identity isolation, transport labels, cancellation of subprocesses and HTTP uploads, byte progress, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
+Checks cover reconnect selection/phone identity isolation, transport labels, scrcpy launch arguments and tool detection, cancellation of subprocesses and HTTP uploads, byte progress, preview range planning, cached thumbnail reads, full-file reads after those previews, recoverable deletion and restoration, permanent deletion of one item, emptying recovery, age-based expiry, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
 
 Physical-phone checks create a dedicated `/sdcard/Download/.macdroid-check-UUID` folder. Test files and their recovery records are cleaned up. Existing user files are not changed.
 
@@ -77,13 +81,15 @@ For protocol debugging, launch with `MACDROID_DAV_TRACE=1`. Traces include file 
 
 ## Source
 
-- `Sources/MacDroid/App.swift`: SwiftUI window, menu bar, connection/mount lifecycle, recovery and transfer views.
+- `Sources/MacDroid/App.swift`: SwiftUI window, action sidebar, menu bar, connection/mount lifecycle, recovery and transfer views.
 - `Sources/MacDroidCore/Devices.swift`: discovery, identity-based transport selection, reconnecting backend.
 - `Sources/MacDroidCore/Transfers.swift`: progress state, transfer history, cancellation tokens.
 - `Sources/MacDroidCore/Recovery.swift`: protected recovery storage, manifests, restoration.
 - `Sources/MacDroidCore/Storage.swift`: validated capacity parsing.
 - `Sources/MacDroidCore/ADB.swift`: command execution, shell quoting, Android file operations.
+- `Sources/MacDroidCore/ScreenMirror.swift`: scrcpy detection, server-jar lookup, and the launch command for the selected phone.
 - `Sources/MacDroidCore/WebDAV.swift`: local server, disk-backed transport, Finder protocol.
+- `Sources/MacDroidCore/ContentCache.swift`: which preview reads can be cached or fetched as a byte window.
 - `Tests/MacDroidCoreTests/`: executable checks and disposable backends.
 
 ## Installable disk image

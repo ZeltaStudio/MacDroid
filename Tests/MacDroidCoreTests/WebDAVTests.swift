@@ -167,6 +167,9 @@ func XCTAssertEqual<T: Equatable>(_ left: T, _ right: T, _ message: String = "",
 func XCTAssertTrue(_ value: Bool, file: StaticString = #filePath, line: UInt = #line) { XCTAssertEqual(value, true, file: file, line: line) }
 func XCTAssertFalse(_ value: Bool, file: StaticString = #filePath, line: UInt = #line) { XCTAssertEqual(value, false, file: file, line: line) }
 func XCTUnwrap<T>(_ value: T?) throws -> T { guard let value else { throw AppError("Expected non-nil value") }; return value }
+func XCTAssertNil<T>(_ value: T?, _ message: String = "", file: StaticString = #filePath, line: UInt = #line) {
+    if value != nil { failures += 1; print("FAIL \(file):\(line): expected nil \(message)") }
+}
 func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T, _ message: String) {
     do { _ = try expression(); failures += 1; print("FAIL expected rejection: \(message)") } catch {}
 }
@@ -178,8 +181,10 @@ struct CheckRunner {
         let suite = WebDAVTests()
         let checks: [(String, () async throws -> Void)] = [
             ("Reconnect policy and transport labels", suite.testReconnectPolicy),
+            ("Screen mirror command", { try suite.testScreenMirrorCommand() }),
             ("Transfer progress and cancellation", suite.testTransferCancellation),
             ("Recoverable deletion and restore", suite.testRecoverableDeletion),
+            ("Recovery cleanup", suite.testRecoveryCleanup),
             ("Storage capacity parsing", suite.testStorageParsing),
             ("HTTP transfer progress and cancellation", suite.testHTTPTransferProgressAndCancellation),
             ("Safe mount cleanup", suite.testSafeMountCleanup),
@@ -188,6 +193,8 @@ struct CheckRunner {
             ("HTTP byte ranges", suite.testHTTPByteRanges),
             ("HTTP image validators", suite.testHTTPFileValidators),
             ("Image range reassembly", suite.testImageRangeReassembly),
+            ("Preview planning and range commands", { try suite.testPreviewPlanningAndRanges() }),
+            ("Preview reads keep full files", suite.testPreviewReadsKeepFullFiles),
             ("Real phone image integrity", suite.testRealPhoneImageIntegrity),
             ("Finder file lifecycle", suite.testFinderFileLifecycle),
             ("Overwrite and destination protection", suite.testOverwritePreconditionsAndForeignDestinations),

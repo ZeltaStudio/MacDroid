@@ -32,6 +32,10 @@ struct MacDroidApp: App {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var adbPath = ADB.locate() ?? ""
+    @Published var mirroring = false
+    private var mirrorProcess: Process?
+    private var mirrorLogHandle: FileHandle?
+    private var mirrorStopRequested = false
     @Published var pairAddress = ""
     @Published var pairingCode = ""
     @Published var connectAddress = UserDefaults.standard.string(forKey: "connectAddress") ?? ""
@@ -52,6 +56,23 @@ final class AppModel: ObservableObject {
     private var recoveryStore: RecoveryStore?
     @Published var recoveryItems: [RecoveryItem] = []
     @Published var showingRecovery = false
+    @Published var recoveryExpiryEnabled = UserDefaults.standard.bool(forKey: "recoveryExpiryEnabled") {
+        didSet { UserDefaults.standard.set(recoveryExpiryEnabled, forKey: "recoveryExpiryEnabled"); applyRecoveryExpiry(force: true) }
+    }
+    @Published var recoveryExpiryDays: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "recoveryExpiryDays")
+        return stored == 0 ? 30 : min(RecoveryRetention.maximumDays, max(RecoveryRetention.minimumDays, stored))
+    }() {
+        didSet {
+            let clamped = min(RecoveryRetention.maximumDays, max(RecoveryRetention.minimumDays, recoveryExpiryDays))
+            if clamped != recoveryExpiryDays { recoveryExpiryDays = clamped; return }
+            UserDefaults.standard.set(clamped, forKey: "recoveryExpiryDays")
+            applyRecoveryExpiry(force: true)
+        }
+    }
+    private var expiryRunning = false
+    private var expiryAgain = false
+    private var lastExpiry = Date.distantPast
     @Published var storage: StorageInfo?
     private var storageLoading = false
     private var storageChecked = Date.distantPast
@@ -66,6 +87,7 @@ final class AppModel: ObservableObject {
         terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             // macOS tears down a disconnected WebDAV mount; also attempt normal unmount before exiting.
             MainActor.assumeIsolated {
+                self?.stopMirroring()
                 if let path = self?.mountPath { _ = try? Command.run("/sbin/umount", [path], timeout: 5) }
                 self?.server?.stop()
             }
@@ -74,6 +96,76 @@ final class AppModel: ObservableObject {
     func chooseADB() {
         let panel = NSOpenPanel(); panel.message = "Select adb from Android SDK Platform Tools"; panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url { adbPath = url.path }
+    }
+    private var mirrorDevice: AndroidDevice? {
+        if let mountedDevice { return mountedDevice }
+        return devices.first { $0.endpoint == selected }
+    }
+    func mirrorScreen() {
+        guard let device = mirrorDevice else {
+            error = "Select a phone before mirroring its screen."; showWindow(); return
+        }
+        let tool = ScreenMirror.resolve() ?? ""
+        guard !tool.isEmpty else { error = ScreenMirror.missingToolMessage; showWindow(); return }
+        guard !mirroring else { status = "Screen mirroring is already running."; return }
+        do {
+            let plan = try ScreenMirror.plan(executable: tool, adb: adbPath, serial: device.endpoint, title: device.label, server: ScreenMirror.serverPath(executable: tool))
+            try launchMirror(plan, device: device)
+        } catch {
+            self.error = error.localizedDescription
+            showWindow()
+        }
+    }
+    private func launchMirror(_ plan: ScreenMirrorPlan, device: AndroidDevice) throws {
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("macdroid-scrcpy-" + UUID().uuidString + ".log")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: log)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: plan.executable)
+        process.arguments = plan.arguments
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in plan.environment { environment[key] = value }
+        process.environment = environment
+        process.standardOutput = handle
+        process.standardError = handle
+        let session = MirrorSession()
+        process.terminationHandler = { [weak self] proc in
+            DispatchQueue.main.async { self?.finishMirror(proc, log: log, session: session) }
+        }
+        do { try process.run() } catch {
+            try? handle.close(); try? FileManager.default.removeItem(at: log); throw error
+        }
+        mirrorLogHandle = handle
+        mirrorProcess = process
+        mirrorStopRequested = false
+        mirroring = process.isRunning
+        status = "Mirroring \(device.label). Use the scrcpy window to view and control the phone."
+        if !process.isRunning { finishMirror(process, log: log, session: session) }
+    }
+    func stopMirroring() {
+        guard mirroring || mirrorProcess?.isRunning == true else { return }
+        mirrorStopRequested = true
+        if let process = mirrorProcess, process.isRunning { process.terminate() }
+        mirroring = false
+        status = "Screen mirroring stopped."
+    }
+    private func finishMirror(_ process: Process, log: URL, session: MirrorSession) {
+        guard !session.handled else { return }
+        session.handled = true
+        try? mirrorLogHandle?.close(); mirrorLogHandle = nil
+        if mirrorProcess === process { mirrorProcess = nil }
+        let stopped = mirrorStopRequested
+        mirrorStopRequested = false
+        mirroring = false
+        let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        try? FileManager.default.removeItem(at: log)
+        guard !stopped, process.terminationStatus != 0 else {
+            if !busy { status = stopped ? "Screen mirroring stopped." : "Screen mirroring ended." }
+            return
+        }
+        let detail = output.split(whereSeparator: \.isNewline).suffix(6).joined(separator: " ")
+        error = detail.isEmpty ? "Screen mirroring stopped unexpectedly." : String(detail.prefix(500))
+        showWindow()
     }
     private func perform(_ message: String, work: @escaping () throws -> String, done: (() -> Void)? = nil, onFailure: (() -> Void)? = nil) {
         busy = true; error = nil; status = message
@@ -157,6 +249,7 @@ final class AppModel: ObservableObject {
                         if let connection {
                             self.mountedDevice = connection; self.selected = connection.endpoint
                             self.refreshStorage(device: connection)
+                            self.applyRecoveryExpiry(force: false)
                             if !self.busy { self.status = "\(connection.label) is mounted. Keep MacDroid running while using Finder." }
                         } else if !self.busy { self.storage = nil; self.status = self.autoReconnect ? "Phone disconnected. Waiting to reconnect…" : "Phone disconnected. Reconnect or eject the volume." }
                     } else if self.autoReconnect, let identity = self.desiredDeviceID,
@@ -199,6 +292,7 @@ final class AppModel: ObservableObject {
                                 self.mountedDevice = device
                                 self.storageChecked = .distantPast; self.refreshStorage(device: device)
                                 self.desiredDeviceID = device.hardwareID
+                                self.applyRecoveryExpiry(force: false)
                                 self.knownIDs.insert(device.hardwareID)
                                 UserDefaults.standard.set(Array(self.knownIDs), forKey: "knownDeviceIDs")
                                 UserDefaults.standard.set(device.hardwareID, forKey: "resumeDeviceID")
@@ -252,6 +346,7 @@ final class AppModel: ObservableObject {
             error = "Wait for active operations to finish, or cancel the transfers, before quitting."
             showWindow(); return
         }
+        stopMirroring()
         if mountURL != nil {
             let resume = mountedDevice?.hardwareID
             stop(after: {
@@ -280,6 +375,55 @@ final class AppModel: ObservableObject {
         guard let store = recoveryStore, !busy else { return }
         perform("Restoring \(item.name)…", work: { try store.restore(item); return "Restored \(item.originalPath)." }, done: { self.loadRecovery() })
     }
+    func purge(_ item: RecoveryItem) {
+        guard let store = recoveryStore, !busy else { return }
+        perform("Deleting \(item.name)…", work: { try store.purge(item); return "Permanently deleted \(item.name)." }, done: { self.loadRecovery() })
+    }
+    func emptyRecovery() {
+        guard let store = recoveryStore, !busy else { return }
+        perform("Emptying recovery…", work: {
+            let count = try store.empty()
+            if count == 1 { return "Permanently deleted 1 recovered item." }
+            return count == 0 ? "Recovery is already empty." : "Permanently deleted \(count) recovered items."
+        }, done: { self.loadRecovery() })
+    }
+    func confirmEmptyRecovery() {
+        guard recoveryStore != nil, !busy else { return }
+        showWindow()
+        let alert = NSAlert()
+        alert.messageText = "Empty Recovery?"
+        alert.informativeText = "Permanently delete every recovered item from the phone. This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Empty Recovery")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        emptyRecovery()
+    }
+    func applyRecoveryExpiry(force: Bool) {
+        let due = force || expiryAgain
+        guard recoveryExpiryEnabled, let store = recoveryStore else { return }
+        if busy || expiryRunning || transferCenter.snapshots.contains(where: \.active) {
+            if due { expiryAgain = true }
+            return
+        }
+        if !due && Date().timeIntervalSince(lastExpiry) < 3600 { return }
+        expiryAgain = false
+        expiryRunning = true
+        lastExpiry = Date()
+        let retention = RecoveryRetention(enabled: true, days: recoveryExpiryDays)
+        DispatchQueue.global(qos: .utility).async {
+            let result = Result { try store.purgeExpired(retention: retention) }
+            DispatchQueue.main.async {
+                self.expiryRunning = false
+                if case .success(let count) = result, count > 0 {
+                    let noun = count == 1 ? "item" : "items"
+                    self.status = "Permanently deleted \(count) recovered \(noun) older than \(retention.days) days."
+                    if self.showingRecovery { self.loadRecovery() }
+                }
+                if self.expiryAgain { self.applyRecoveryExpiry(force: false) }
+            }
+        }
+    }
     func openRecovery() { showingRecovery = true; loadRecovery() }
     func openFinder() {
         if let path = mountPath { openDirectory(URL(fileURLWithPath: path)) }
@@ -295,19 +439,14 @@ final class AppModel: ObservableObject {
 
 }
 
+private final class MirrorSession: @unchecked Sendable { var handled = false }
+
 struct ContentView: View {
     @ObservedObject var model: AppModel
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 22) {
-                Image(systemName: "externaldrive.connected.to.line.below.fill").font(.system(size: 42)).foregroundStyle(.mint)
-                Text("MacDroid").font(.largeTitle.bold())
-                Text("Your phone.\nRight in Finder.").font(.title2.weight(.medium))
-                Text("Connect over local Wi-Fi. No Android app, cable, or cloud account.").foregroundStyle(.secondary)
-                Spacer()
-                Label("Local connection", systemImage: "wifi").font(.callout)
-                Text("Android 11 or later\nSame Wi-Fi as this Mac").font(.caption).foregroundStyle(.secondary)
-            }.padding(28).frame(width: 220).frame(maxHeight: .infinity).background(.quaternary.opacity(0.45))
+        NavigationSplitView {
+            ActionSidebar(model: model)
+        } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     GroupBox {
@@ -338,7 +477,7 @@ struct ContentView: View {
                     }
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("2  Connect and open Finder").font(.headline)
+                            Text("2  Connect").font(.headline)
                             Text("Close the pairing dialog. Use IP address & Port on the main Wireless debugging screen. The connection port differs from the pairing port.").foregroundStyle(.secondary)
                             HStack {
                                 TextField("Connection IP:port", text: $model.connectAddress).textFieldStyle(.roundedBorder)
@@ -357,17 +496,10 @@ struct ContentView: View {
                                     Text("\(ByteCountFormatter.string(fromByteCount: Int64(clamping: storage.available), countStyle: .file)) free of \(ByteCountFormatter.string(fromByteCount: Int64(clamping: storage.total), countStyle: .file))").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                            if model.mountURL == nil {
-                                Button("Open Android in Finder", systemImage: "folder") { model.mount() }
-                                    .buttonStyle(.borderedProminent).disabled(model.busy || model.selected.isEmpty)
-                            } else {
-                                HStack {
-                                    Button("Open Finder") { model.openFinder() }.disabled(model.busy)
-                                    Button("Recovery") { model.openRecovery() }.disabled(model.busy || model.mountPath == nil)
-                                    Button(model.mountPath == nil ? "Stop bridge" : "Eject") { model.stop() }.disabled(model.busy || model.transfers.contains(where: \.active))
-                                }
-                            }
-                            Text("Deleted files move to MacDroid Recovery on the phone. Restore them using Recovery. Replaced files are not backed up. Private app data stays subject to Android permissions.").font(.caption).foregroundStyle(.secondary)
+                            Text("Mirror, Finder, Recovery, and Eject are in the sidebar.").font(.caption).foregroundStyle(.secondary)
+                            Text("Included with the app. A development build uses Homebrew when scrcpy is not bundled. Finder does not need it.")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text("Deleted files move to MacDroid Recovery on the phone. Restore them, or permanently delete them, from Recovery. Automatic deletion is off unless you set an age limit. Replaced files are not backed up.").font(.caption).foregroundStyle(.secondary)
                         }.padding(8)
                     }
                     TransferList(model: model)
@@ -380,8 +512,58 @@ struct ContentView: View {
                     }
                 }.padding(28)
             }
-        }.onAppear { model.startMonitoring() }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onAppear { model.startMonitoring() }
         .sheet(isPresented: $model.showingRecovery) { RecoveryView(model: model) }
+    }
+}
+
+struct ActionSidebar: View {
+    @ObservedObject var model: AppModel
+    private var transfersActive: Bool { model.transfers.contains(where: \.active) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "externaldrive.connected.to.line.below.fill").font(.title2).foregroundStyle(.mint)
+                Text("MacDroid").font(.title2.bold())
+            }
+            Text("Your phone, in Finder.").font(.callout).foregroundStyle(.secondary)
+            Divider()
+            Text("Actions").font(.headline)
+            if model.mirroring {
+                command("Stop mirroring", systemImage: "stop.fill", disabled: false) { model.stopMirroring() }
+            } else {
+                command("Mirror screen", systemImage: "rectangle.on.rectangle", disabled: model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil)) { model.mirrorScreen() }
+            }
+            if model.mountURL == nil {
+                command("Open Android in Finder", systemImage: "folder", prominent: true, disabled: model.busy || model.selected.isEmpty) { model.mount() }
+            } else {
+                command("Open in Finder", systemImage: "folder", disabled: model.busy) { model.openFinder() }
+            }
+            command("Recovery", systemImage: "arrow.uturn.backward.circle", disabled: model.busy || model.mountPath == nil) { model.openRecovery() }
+            command(model.mountURL != nil && model.mountPath == nil ? "Stop bridge" : "Eject", systemImage: model.mountURL != nil && model.mountPath == nil ? "stop.circle" : "eject", disabled: model.mountURL == nil || model.busy || transfersActive) { model.stop() }
+            Spacer()
+            Label("Local connection", systemImage: "wifi").font(.callout)
+            Text("Android 11 or later\nSame Wi-Fi as this Mac").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .navigationSplitViewColumnWidth(min: 236, ideal: 260, max: 320)
+    }
+    @ViewBuilder
+    private func command(_ title: String, systemImage: String, prominent: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
+        if prominent {
+            Button(action: action) {
+                Label(title, systemImage: systemImage).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).disabled(disabled)
+        } else {
+            Button(action: action) {
+                Label(title, systemImage: systemImage).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered).controlSize(.large).disabled(disabled)
+        }
     }
 }
 
@@ -430,15 +612,20 @@ struct TransferList: View {
 
 struct RecoveryView: View {
     @ObservedObject var model: AppModel
+    @State private var confirmingEmpty = false
+    @State private var pendingDelete: RecoveryItem?
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Recovered deletions").font(.title2.bold())
                 Spacer()
                 Button("Refresh") { model.loadRecovery() }.disabled(model.busy)
+                Button("Empty Recovery") { confirmingEmpty = true }.disabled(model.busy || model.recoveryItems.isEmpty)
                 Button("Done") { model.showingRecovery = false }
             }
-            Text("Files stay on your phone until restored. Restoring uses the original location and never replaces an existing file.").foregroundStyle(.secondary)
+            Text("Recovered files stay on the phone until you restore them or permanently delete them. Automatic deletion stays off until you set an age limit.").foregroundStyle(.secondary)
+            Toggle("Delete items older than \(model.recoveryExpiryDays) days", isOn: $model.recoveryExpiryEnabled).disabled(model.mountURL == nil)
+            Stepper("Age limit: \(model.recoveryExpiryDays) days", value: $model.recoveryExpiryDays, in: RecoveryRetention.minimumDays...RecoveryRetention.maximumDays)
             if model.busy { ProgressView() }
             if model.recoveryItems.isEmpty && !model.busy { Text("No recoverable deletions.").foregroundStyle(.secondary) }
             List(model.recoveryItems) { item in
@@ -451,10 +638,27 @@ struct RecoveryView: View {
                     }
                     Spacer()
                     Button("Restore") { model.restore(item) }.disabled(model.busy)
+                    Button("Delete") { pendingDelete = item }.disabled(model.busy)
                 }.padding(.vertical, 5)
             }
             if let error = model.error { Text(error).foregroundStyle(.red).font(.callout).textSelection(.enabled) }
-        }.padding(24).frame(width: 660, height: 480)
+        }
+        .confirmationDialog("Empty Recovery?", isPresented: $confirmingEmpty, titleVisibility: .visible) {
+            Button("Empty Recovery", role: .destructive) { model.emptyRecovery() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Permanently delete every recovered item from the phone. This cannot be undone.")
+        }
+        .confirmationDialog("Permanently delete this recovered item?", isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }), titleVisibility: .visible) {
+            Button("Delete Permanently", role: .destructive) {
+                if let item = pendingDelete { model.purge(item) }
+                pendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text(pendingDelete.map { "\($0.name) will be removed from the phone and cannot be restored." } ?? "This cannot be undone.")
+        }
+        .padding(24).frame(width: 700, height: 560)
     }
 }
 
@@ -471,6 +675,7 @@ struct MacDroidMenu: View {
         if model.mountURL != nil {
             Button("Open in Finder") { model.openFinder() }.disabled(model.busy)
             Button("Recovery…") { openWindow(id: "main"); model.showWindow(); model.openRecovery() }.disabled(model.busy)
+            Button("Empty Recovery…") { model.confirmEmptyRecovery() }.disabled(model.busy)
             Button("Eject") { model.stop() }.disabled(model.busy || !active.isEmpty)
         } else {
             ForEach(model.devices) { device in
@@ -478,6 +683,12 @@ struct MacDroidMenu: View {
             }
             Button("Find phones") { model.refresh() }.disabled(model.busy)
             if !model.connectAddress.isEmpty { Button("Connect saved Wi-Fi address") { model.connect() }.disabled(model.busy) }
+        }
+        if model.mirroring {
+            Button("Stop screen mirroring") { model.stopMirroring() }
+        } else {
+            Button("Mirror screen") { model.mirrorScreen() }
+                .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
         }
         Toggle("Reconnect automatically", isOn: $model.autoReconnect)
         Divider()
