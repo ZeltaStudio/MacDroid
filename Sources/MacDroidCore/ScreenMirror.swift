@@ -39,10 +39,11 @@ public enum ScreenMirror {
         let given = URL(fileURLWithPath: executable)
         let resolved = given.resolvingSymlinksInPath()
         let prefix = resolved.deletingLastPathComponent().deletingLastPathComponent()
+        // URL.path is ambiguous with path(percentEncoded:) on newer SDKs. NSURL.path is the file path.
         let candidates = [
-            given.deletingLastPathComponent().appendingPathComponent("scrcpy-server").path,
-            resolved.deletingLastPathComponent().appendingPathComponent("scrcpy-server").path,
-            prefix.appendingPathComponent("share/scrcpy/scrcpy-server").path,
+            filesystemPath(given.deletingLastPathComponent().appendingPathComponent("scrcpy-server")),
+            filesystemPath(resolved.deletingLastPathComponent().appendingPathComponent("scrcpy-server")),
+            filesystemPath(prefix.appendingPathComponent("share/scrcpy/scrcpy-server")),
             bundleServer
         ].compactMap { $0 }
         return candidates.first(where: isReadableFile)
@@ -70,6 +71,7 @@ public enum ScreenMirror {
         return ScreenMirrorPlan(executable: executable, arguments: arguments, environment: environment)
     }
 
+    private static func filesystemPath(_ url: URL) -> String { (url as NSURL).path ?? "" }
     private static func isReadableFile(_ path: String) -> Bool {
         var directory: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && !directory.boolValue && FileManager.default.isReadableFile(atPath: path)
