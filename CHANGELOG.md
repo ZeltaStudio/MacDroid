@@ -6,6 +6,7 @@
 
 - Mirror and control the phone’s screen from the main window or the menu bar. The packaged app includes scrcpy and uses that copy first. A release build downloads the official Apple Silicon release, checks its checksums, and embeds the binary, server, and license. Finder keeps working when scrcpy is missing.
 - Speed up Finder and Quick Look thumbnails, especially over Wi-Fi. Preview reads reuse a cache of real file bytes. Photos up to 8 MB are fetched once. Larger videos are read from the requested offset instead of copying the whole file. Opening a file still downloads it completely, and partial responses keep the byte ranges fixed in 0.2.2.
+- Empty Recovery, with confirmation, from the recovery window and the menu bar. Permanently delete one recovered item from the list. Optionally delete recovered items older than a chosen number of days; that setting is off unless you turn it on.
 
 ## 0.2.2 — 2026-11-02
 

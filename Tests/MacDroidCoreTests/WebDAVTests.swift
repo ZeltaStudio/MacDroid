@@ -184,6 +184,7 @@ struct CheckRunner {
             ("Screen mirror command", { try suite.testScreenMirrorCommand() }),
             ("Transfer progress and cancellation", suite.testTransferCancellation),
             ("Recoverable deletion and restore", suite.testRecoverableDeletion),
+            ("Recovery cleanup", suite.testRecoveryCleanup),
             ("Storage capacity parsing", suite.testStorageParsing),
             ("HTTP transfer progress and cancellation", suite.testHTTPTransferProgressAndCancellation),
             ("Safe mount cleanup", suite.testSafeMountCleanup),
