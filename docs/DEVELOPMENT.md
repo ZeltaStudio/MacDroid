@@ -25,7 +25,7 @@ Keep MacDroid running while using the mounted volume. The menu bar icon stays av
 
 - Shared storage (`/sdcard`) only. Android permission restrictions still apply; private app data is not exposed.
 - Built-in macOS WebDAV mounting; no FUSE driver or system extension. The listener binds only to 127.0.0.1 and uses a random URL per session, so it is not exposed to the Wi-Fi network. ADB manages pairing keys.
-- Uploads and downloads are disk-backed. Downloads are staged on the Mac before delivery to Finder, so temporary space for a complete file is needed.
+- Uploads and full-file downloads are disk-backed. A complete download is staged on the Mac before delivery to Finder, so temporary space for that file is needed. Finder thumbnails are HTTP range reads: macOS WebDAV does not request a thumbnail property, and substituting a smaller image would break opening the file. Photos up to 8 MB are pulled once and cached. Larger files are read with a bounded `adb exec-out` window (about 1 MB of read-ahead) keyed by path, size, and modification time. A failed window falls back to a full pull only for files up to 32 MB.
 - ADB file operations are serialized. Large folders can be slow, and Finder can cache directory contents. Automatic reconnect does not resume partially completed transfers.
 - No support yet for arbitrary extended attributes, macOS timestamp preservation, server-side COPY, recursive directory locks, or PROPPATCH. Finder may create `.DS_Store` and `._` metadata files on the phone. Existing directories cannot be replaced by MOVE.
 - File names must be valid on Android's filesystem. Storage figures cover shared internal storage, not a separately selectable SD card.
@@ -51,7 +51,7 @@ ADB documentation: https://developer.android.com/tools/adb
 
 ## Image-reading regression checks
 
-Version 0.2.2 adds HTTP single-byte-range support (closed, open-ended, and suffix ranges), cache validators, and graceful response completion. Staged downloads must match the advertised file size before being sent. Image checks reconstruct a generated JPEG from out-of-order ranges and compare actual mounted-phone reads against a direct ADB copy. Test images contain generated noise, not user photos.
+Version 0.2.2 adds HTTP single-byte-range support (closed, open-ended, and suffix ranges), cache validators, and graceful response completion. Staged downloads must match the advertised file size before being sent. Preview caching serves those same bytes back; it does not change the reconstruction checks. Image checks reconstruct a generated JPEG from out-of-order ranges and compare actual mounted-phone reads against a direct ADB copy. Test images contain generated noise, not user photos.
 
 ```sh
 MACDROID_CHECK_FILTER='image' swift run MacDroidCheck
@@ -69,7 +69,7 @@ MACDROID_TEST_MOUNT=1 swift run MacDroidCheck
 MACDROID_ADB_PATH=/absolute/path/to/adb MACDROID_TEST_SERIAL=your-device-serial swift run MacDroidCheck
 ```
 
-Checks cover reconnect selection/phone identity isolation, transport labels, cancellation of subprocesses and HTTP uploads, byte progress, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
+Checks cover reconnect selection/phone identity isolation, transport labels, cancellation of subprocesses and HTTP uploads, byte progress, preview range planning, cached thumbnail reads, full-file reads after those previews, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
 
 Physical-phone checks create a dedicated `/sdcard/Download/.macdroid-check-UUID` folder. Test files and their recovery records are cleaned up. Existing user files are not changed.
 
@@ -84,6 +84,7 @@ For protocol debugging, launch with `MACDROID_DAV_TRACE=1`. Traces include file 
 - `Sources/MacDroidCore/Storage.swift`: validated capacity parsing.
 - `Sources/MacDroidCore/ADB.swift`: command execution, shell quoting, Android file operations.
 - `Sources/MacDroidCore/WebDAV.swift`: local server, disk-backed transport, Finder protocol.
+- `Sources/MacDroidCore/ContentCache.swift`: which preview reads can be cached or fetched as a byte window.
 - `Tests/MacDroidCoreTests/`: executable checks and disposable backends.
 
 ## Installable disk image

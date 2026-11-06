@@ -4,6 +4,7 @@ import Network
 public final class WebDAVServer {
     private let backend: FileBackend
     public let transfers: TransferCenter
+    private let previews = ContentCache()
     private let queue = DispatchQueue(label: "MacDroid.WebDAV")
     private var listener: NWListener?
     private var clients: [UUID: HTTPClient] = [:]
@@ -51,6 +52,7 @@ public final class WebDAVServer {
     }
     public func stop() {
         queue.async {
+            self.previews.removeAll()
             self.transfers.cancelAll()
             self.listener?.cancel(); self.listener = nil
             let clients = Array(self.clients.values)
@@ -115,20 +117,16 @@ public final class WebDAVServer {
                     headers["Content-Length"] = "0"
                     return HTTPResponse(416, headers: headers)
                 }
-                let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-                do {
-                    try request.transfer?.cancellation.check()
-                    try backend.download(path, to: file, transfer: request.transfer)
-                    let actualSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value
-                    guard actualSize == entry.size else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
-                } catch { try? FileManager.default.removeItem(at: file); throw error }
-                return HTTPResponse(status, headers: headers, file: file, fileOffset: offset, fileLength: length)
+                // Ranges stay the real file bytes. Thumbnails reuse a cache; a full read still pulls the whole file.
+                let (file, fileOffset) = try serveBody(path: path, entry: entry, offset: offset, length: length, transfer: request.transfer)
+                return HTTPResponse(status, headers: headers, file: file, fileOffset: fileOffset, fileLength: length)
             case "PUT":
                 guard path != "/" else { throw DAVError(403) }
                 try checkLocks(path, request: request)
                 if request.headers["if-none-match"] == "*", (try? backend.stat(path)) != nil { throw DAVError(412) }
                 let exists = (try? backend.stat(path)) != nil
                 try request.transfer?.cancellation.check(); try backend.upload(request.body, to: path, transfer: request.transfer)
+                previews.invalidate(path)
                 return HTTPResponse(exists ? 204 : 201)
             case "MKCOL":
                 try checkLocks(path, request: request)
@@ -139,7 +137,7 @@ public final class WebDAVServer {
                 guard path != "/" else { throw DAVError(403) }
                 try checkLocks(path, request: request)
                 guard (try? backend.stat(path)) != nil else { throw DAVError(404) }
-                try backend.delete(path); return HTTPResponse(204)
+                try backend.delete(path); previews.invalidate(path); return HTTPResponse(204)
             case "MOVE":
                 guard let destination = request.headers["destination"], let url = URLComponents(string: destination),
                       url.host == "127.0.0.1", url.port == Int(port), url.scheme == "http" else { throw DAVError(403) }
@@ -152,6 +150,7 @@ public final class WebDAVServer {
                 // Avoid recursive replacement; Finder can explicitly delete an existing folder first.
                 if exists, (try backend.stat(target)).directory { throw DAVError(409) }
                 try backend.move(path, to: target, overwrite: request.headers["overwrite"] != "F")
+                previews.invalidate(path); previews.invalidate(target)
                 return HTTPResponse(exists ? 204 : 201)
             case "LOCK":
                 guard request.headers["depth", default: "0"] == "0" else { throw DAVError(403) }
@@ -163,7 +162,7 @@ public final class WebDAVServer {
                     lock = "opaquelocktoken:" + UUID().uuidString
                 }
                 // Finder can lock a new file before its first PUT.
-                if (try? backend.stat(path)) == nil { try backend.upload(request.emptyFile(), to: path) }
+                if (try? backend.stat(path)) == nil { try backend.upload(request.emptyFile(), to: path); previews.invalidate(path) }
                 locks[path] = (lock, Date().addingTimeInterval(600))
                 return HTTPResponse(200, headers: ["Lock-Token": "<\(lock)>"], xml: "<?xml version=\"1.0\"?><D:prop xmlns:D=\"DAV:\"><D:lockdiscovery><D:activelock><D:locktype><D:write/></D:locktype><D:lockscope><D:exclusive/></D:lockscope><D:depth>0</D:depth><D:timeout>Second-600</D:timeout><D:locktoken><D:href>\(lock)</D:href></D:locktoken><D:lockroot><D:href>\(href(path, directory: false))</D:href></D:lockroot></D:activelock></D:lockdiscovery></D:prop>")
             case "UNLOCK":
@@ -174,6 +173,52 @@ public final class WebDAVServer {
         } catch is CancellationError { return HTTPResponse(503, text: "Transfer cancelled.") }
         catch let error as DAVError { return HTTPResponse(error.status) }
         catch { onError?(error.localizedDescription); return HTTPResponse(500, text: error.localizedDescription) }
+    }
+    /// Cache hits and narrow windows return a file that already starts at the requested byte.
+    /// A complete download returns the whole file so the caller can slice it, after the size check.
+    private func serveBody(path: String, entry: RemoteEntry, offset: UInt64, length: UInt64, transfer: TransferOperation?) throws -> (URL, UInt64) {
+        let entire = offset == 0 && length == entry.size
+        if let hit = previews.read(path: path, size: entry.size, modified: entry.modified, offset: offset, length: length), UInt64(hit.count) == length {
+            return (try staged(hit), 0)
+        }
+        if !entire, case .window(let start, let count) = ContentCache.plan(path: path, fileSize: entry.size, offset: offset, length: length), count >= length, start <= offset {
+            do {
+                let raw = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                defer { try? FileManager.default.removeItem(at: raw) }
+                try transfer?.cancellation.check()
+                try backend.downloadRange(path, offset: start, length: count, to: raw, transfer: transfer)
+                let data = try Data(contentsOf: raw)
+                guard UInt64(data.count) == count else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+                previews.store(path: path, size: entry.size, modified: entry.modified, offset: start, data: data)
+                guard offset >= start, length <= UInt64(Int.max), offset - start <= UInt64(Int.max) else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+                let lead = Int(offset - start)
+                guard lead + Int(length) <= data.count else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+                return (try staged(data.subdata(in: lead..<(lead + Int(length)))), 0)
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                try transfer?.cancellation.check()
+                guard entry.size <= ContentCache.fallbackFullLimit else { throw error }
+            }
+        }
+        return (try downloadFull(path, entry: entry, transfer: transfer), offset)
+    }
+    private func downloadFull(_ path: String, entry: RemoteEntry, transfer: TransferOperation?) throws -> URL {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        do {
+            try transfer?.cancellation.check()
+            try backend.download(path, to: file, transfer: transfer)
+            let actualSize = (try FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.uint64Value
+            guard actualSize == entry.size else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+            if entry.size <= ContentCache.imageFullLimit, entry.size <= UInt64(Int.max), let data = try? Data(contentsOf: file), UInt64(data.count) == entry.size {
+                previews.store(path: path, size: entry.size, modified: entry.modified, offset: 0, data: data)
+            }
+            return file
+        } catch { try? FileManager.default.removeItem(at: file); throw error }
+    }
+    private func staged(_ data: Data) throws -> URL {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try data.write(to: file, options: .atomic)
+        return file
     }
 }
 

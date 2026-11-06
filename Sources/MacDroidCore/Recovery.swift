@@ -85,6 +85,9 @@ public final class RecoverableBackend: FileBackend {
     public func stat(_ path: String) throws -> RemoteEntry { try base.stat(path) }
     public func list(_ path: String) throws -> [RemoteEntry] { try base.list(path) }
     public func download(_ path: String, to local: URL, transfer: TransferOperation?) throws { try base.download(path, to: local, transfer: transfer) }
+    public func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws {
+        try base.downloadRange(path, offset: offset, length: length, to: local, transfer: transfer)
+    }
     public func upload(_ local: URL, to path: String, transfer: TransferOperation?) throws { try writable(path); try base.upload(local, to: path, transfer: transfer) }
     public func mkdir(_ path: String) throws { try writable(path); try base.mkdir(path) }
     public func delete(_ path: String) throws { _ = try recovery.recover(path) }

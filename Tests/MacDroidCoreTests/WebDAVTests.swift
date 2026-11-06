@@ -188,6 +188,8 @@ struct CheckRunner {
             ("HTTP byte ranges", suite.testHTTPByteRanges),
             ("HTTP image validators", suite.testHTTPFileValidators),
             ("Image range reassembly", suite.testImageRangeReassembly),
+            ("Preview planning and range commands", { try suite.testPreviewPlanningAndRanges() }),
+            ("Preview reads keep full files", suite.testPreviewReadsKeepFullFiles),
             ("Real phone image integrity", suite.testRealPhoneImageIntegrity),
             ("Finder file lifecycle", suite.testFinderFileLifecycle),
             ("Overwrite and destination protection", suite.testOverwritePreconditionsAndForeignDestinations),

@@ -50,6 +50,55 @@ public enum Command {
         guard process.terminationStatus == 0 else { throw AppError(output.trimmingCharacters(in: .whitespacesAndNewlines)) }
         return output
     }
+
+    /// Raw stdout for binary device output. stderr is kept separate so it cannot alter file bytes.
+    public static func capture(_ executable: String, _ arguments: [String], timeout: TimeInterval = 120, cancellation: CancellationToken? = nil) throws -> Data {
+        try cancellation?.check()
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let errors = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        FileManager.default.createFile(atPath: errors.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: output); try? FileManager.default.removeItem(at: errors) }
+        let stdout = try FileHandle(forWritingTo: output)
+        let stderr = try FileHandle(forWritingTo: errors)
+        defer { try? stdout.close(); try? stderr.close() }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        process.standardOutput = stdout
+        process.standardError = stderr
+        if let cancellation { try cancellation.launch(process) } else { try process.run() }
+        defer { cancellation?.remove(process) }
+        let timeoutLock = NSLock()
+        var timedOut = false
+        let timer = DispatchSource.makeTimerSource(queue: .global())
+        timer.schedule(deadline: .now() + timeout)
+        timer.setEventHandler {
+            guard process.isRunning else { return }
+            timeoutLock.lock(); timedOut = true; timeoutLock.unlock()
+            process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+            }
+        }
+        timer.resume()
+        process.waitUntilExit()
+        timer.cancel()
+        timeoutLock.lock(); let didTimeOut = timedOut; timeoutLock.unlock()
+        if didTimeOut { throw AppError("The operation timed out. Check the phone’s Wi-Fi and wireless debugging.") }
+        try cancellation?.check()
+        guard process.terminationStatus == 0 else {
+            let message = String(decoding: (try? Data(contentsOf: errors)) ?? Data(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            throw AppError(message.isEmpty ? "The phone could not read that part of the file." : message)
+        }
+        return (try? Data(contentsOf: output)) ?? Data()
+    }
+}
+
+public struct RemoteRead: Equatable, Sendable {
+    public let script: String
+    public let alignedOffset: UInt64
+    public init(script: String, alignedOffset: UInt64) { self.script = script; self.alignedOffset = alignedOffset }
 }
 
 public struct RemoteEntry {
@@ -67,6 +116,7 @@ public protocol FileBackend {
     func stat(_ path: String) throws -> RemoteEntry
     func list(_ path: String) throws -> [RemoteEntry]
     func download(_ path: String, to local: URL, transfer: TransferOperation?) throws
+    func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws
     func upload(_ local: URL, to path: String, transfer: TransferOperation?) throws
     func mkdir(_ path: String) throws
     func delete(_ path: String) throws
@@ -76,6 +126,24 @@ public protocol FileBackend {
 public extension FileBackend {
     func storage() throws -> StorageInfo? { nil }
     func download(_ path: String, to local: URL) throws { try download(path, to: local, transfer: nil) }
+    func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL) throws {
+        try downloadRange(path, offset: offset, length: length, to: local, transfer: nil)
+    }
+    /// Whole-file fetch, then the requested slice. Conformers replace this with a direct range read.
+    func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws {
+        guard length <= UInt64(Int.max), offset <= UInt64.max - length else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+        let full = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: full) }
+        try download(path, to: full, transfer: transfer)
+        let handle = try FileHandle(forReadingFrom: full)
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        guard offset <= size, length <= size - offset else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+        try handle.seek(toOffset: offset)
+        let data = try handle.read(upToCount: Int(length)) ?? Data()
+        guard UInt64(data.count) == length else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+        try data.write(to: local, options: .atomic)
+    }
     func upload(_ local: URL, to path: String) throws { try upload(local, to: path, transfer: nil) }
 }
 
@@ -110,6 +178,30 @@ public final class ADB: FileBackend, Sendable {
         // NUL records preserve spaces, quotes, pipes and newlines in file names.
         let result = try shell("find \(remote(path)) -mindepth 1 -maxdepth 1 -exec stat -L -c '\(format)' -- {} \\; -exec printf '\\0' \\;")
         return try result.split(separator: "\0").map { try parse(Substring($0.hasSuffix("\n") ? $0.dropLast() : $0)) }
+    }
+    /// Device-side `dd` seeks to the block instead of copying every preceding byte. Stderr stays on the phone.
+    public static func remoteRange(path: String, offset: UInt64, length: UInt64, block: UInt64 = 4096) -> RemoteRead? {
+        guard length > 0, block > 0, offset <= UInt64.max - length else { return nil }
+        let aligned = offset / block * block
+        let span = offset + length - aligned
+        let count = (span + block - 1) / block
+        guard count > 0, count <= 8192 else { return nil }
+        let script = "dd if=\(quote("/sdcard" + path)) bs=\(block) skip=\(aligned / block) count=\(count) 2>/dev/null"
+        return RemoteRead(script: script, alignedOffset: aligned)
+    }
+    public static func slice(data: Data, alignedOffset: UInt64, offset: UInt64, length: UInt64) -> Data? {
+        guard offset >= alignedOffset, length <= UInt64(Int.max), offset - alignedOffset <= UInt64(Int.max) else { return nil }
+        let lead = Int(offset - alignedOffset)
+        guard lead <= data.count, length <= UInt64(data.count - lead) else { return nil }
+        return data.subdata(in: lead..<(lead + Int(length)))
+    }
+    public func downloadRange(_ path: String, offset: UInt64, length: UInt64, to local: URL, transfer: TransferOperation?) throws {
+        guard let plan = Self.remoteRange(path: path, offset: offset, length: length) else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+        transfer?.stage("Reading from phone", total: length)
+        let data = try Command.capture(executable, (serial.isEmpty ? [] : ["-s", serial]) + ["exec-out", plan.script], timeout: 120, cancellation: transfer?.cancellation)
+        guard let slice = Self.slice(data: data, alignedOffset: plan.alignedOffset, offset: offset, length: length) else { throw AppError("The file changed or the download was incomplete. Please try opening it again.") }
+        try slice.write(to: local, options: .atomic)
+        transfer?.progress(length)
     }
     public func download(_ path: String, to local: URL, transfer: TransferOperation?) throws {
         let size = try stat(path).size

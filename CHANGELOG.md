@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Speed up Finder and Quick Look thumbnails, especially over Wi-Fi. Preview reads reuse a cache of real file bytes. Photos up to 8 MB are fetched once. Larger videos are read from the requested offset instead of copying the whole file. Opening a file still downloads it completely, and partial responses keep the byte ranges fixed in 0.2.2.
+
 ## 0.2.2 — 2026-11-02
 
 ### Fixed
