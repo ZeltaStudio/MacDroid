@@ -19,7 +19,7 @@ Keep MacDroid running while using the mounted volume. The menu bar icon stays av
 3. **Transfer progress and cancellation.** Finder GET/PUT operations are tracked, including receiving uploads, ADB reads/writes, and delivery to Finder. The app shows bytes, stage progress, speed, and an estimated remaining time for the current stage. Cancel terminates the ADB transfer or local HTTP connection. Uploads are staged before replacement; cancelled staging uploads are removed when the phone is reachable. Finder may display an error or offer to retry. These are per-stage estimates, not whole-folder estimates. Finder background reads and metadata writes may also appear in the list. Recently completed transfers can be cleared.
 4. **Recoverable deletion.** Finder DELETE moves files/folders into `/.MacDroid Recovery/` on shared storage, along with their original location and deletion time. Open Recovery in the app or menu bar to restore. Restore never overwrites an existing item and requires the original parent folder to exist. The recovery folder is protected against modification through this bridge. There is no automatic expiry or permanent-empty command yet: recovered files continue using phone storage. File replacements are not versioned/backed up, and deletions made outside MacDroid are not intercepted.
 5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, mirror the screen, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume and stops mirroring; active operations must finish or be cancelled.
-6. **Screen mirroring.** Mirror screen launches scrcpy with the selected phone’s serial and this app’s ADB. The scrcpy window shows the display and accepts keyboard and pointer control. The executable is the bundled copy, a saved path, or a Homebrew, MacPorts, `/usr/local`, or `~/bin` install. The server jar is passed through `SCRCPY_SERVER_PATH` when it sits next to that executable or in the Homebrew prefix. A missing tool produces an explanation instead of a failed launch. Finder mounting does not require scrcpy.
+6. **Screen mirroring.** Mirror screen launches scrcpy with the selected phone’s serial and this app’s ADB. The scrcpy window shows the display and accepts keyboard and pointer control. A packaged app prefers the scrcpy and scrcpy-server embedded in its Resources. Otherwise MacDroid uses a saved path, then Homebrew, MacPorts, `/usr/local`, or `~/bin`. The server jar is passed through `SCRCPY_SERVER_PATH` when it sits next to that executable or in the Homebrew prefix. A missing tool produces an explanation instead of a failed launch. Finder mounting does not require scrcpy.
 7. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
 
 ## Architecture and limits
@@ -43,10 +43,13 @@ swift build
 ./scripts/build-app.sh release
 ```
 
-The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected. It embeds scrcpy when `.build/downloads/scrcpy/scrcpy` exists, plus `scrcpy-server` from that directory when present.
+The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected. A release build runs `scripts/fetch-scrcpy.sh`, which downloads the official scrcpy macOS arm64 archive and `scrcpy-server` for the pinned version, checks both against the checksums in that script, and stores them in `.build/downloads/scrcpy/`. The app bundle then receives `scrcpy`, `scrcpy-server`, and `scrcpy-LICENSE.txt`. The adb binary shipped inside the scrcpy archive is not used.
 
 Official Google tools used for the local build:
 https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
+
+Official scrcpy release used for packaging:
+https://github.com/Genymobile/scrcpy/releases/download/v5.0.1/scrcpy-macos-aarch64-v5.0.1.tar.gz
 
 ADB documentation: https://developer.android.com/tools/adb
 

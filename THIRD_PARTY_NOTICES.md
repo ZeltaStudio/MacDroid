@@ -6,4 +6,4 @@ Packaged builds can include Google's Android SDK Platform Tools (`adb`). Those t
 
 The app icon uses Apple's SF Symbols through AppKit. SF Symbols are subject to Apple's applicable terms and are not relicensed under MacDroid's MIT license.
 
-Screen mirroring can launch [scrcpy](https://github.com/Genymobile/scrcpy) (Genymobile, Apache License 2.0) when you install it or when a copy is embedded at build time. scrcpy and its server remain under their own license; MacDroid's MIT license does not replace it.
+Packaged builds include [scrcpy](https://github.com/Genymobile/scrcpy) (Genymobile, Apache License 2.0) and its server. Those files keep their own license, which is bundled at `MacDroid.app/Contents/Resources/scrcpy-LICENSE.txt`. MacDroid's MIT license does not replace it.

@@ -33,3 +33,8 @@ jobs:
         run: |
           ./scripts/build-app.sh release
           codesign --verify --deep --strict dist/MacDroid.app
+          test -x dist/MacDroid.app/Contents/Resources/scrcpy
+          test -f dist/MacDroid.app/Contents/Resources/scrcpy-server
+          test -f dist/MacDroid.app/Contents/Resources/scrcpy-LICENSE.txt
+          codesign --verify --strict dist/MacDroid.app/Contents/Resources/scrcpy
+          cmp -s .build/downloads/scrcpy/scrcpy-server dist/MacDroid.app/Contents/Resources/scrcpy-server

@@ -4,7 +4,7 @@
 
 ### Added
 
-- Mirror and control the phone’s screen from the main window or the menu bar. MacDroid launches scrcpy on the same authorized ADB connection when the tool is installed, bundled, or chosen with **Select scrcpy…**. Finder keeps working when scrcpy is missing.
+- Mirror and control the phone’s screen from the main window or the menu bar. The packaged app includes scrcpy and uses that copy first. A release build downloads the official Apple Silicon release, checks its checksums, and embeds the binary, server, and license. Finder keeps working when scrcpy is missing.
 
 ## 0.2.2 — 2026-11-02
 

@@ -464,7 +464,7 @@ struct ContentView: View {
                                 Button("Select scrcpy…") { model.chooseScrcpy() }
                             }
                             Text(model.activeScrcpyPath.isEmpty
-                                 ? "Screen mirroring needs scrcpy (brew install scrcpy). Choose the executable if it isn’t in a usual location. Finder does not need it."
+                                 ? "The packaged app includes scrcpy. A development build can use Homebrew (brew install scrcpy) or Select scrcpy…. Finder does not need it."
                                  : "scrcpy: " + model.activeScrcpyPath)
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                             Text("Deleted files move to MacDroid Recovery on the phone. Restore them using Recovery. Replaced files are not backed up. Private app data stays subject to Android permissions.").font(.caption).foregroundStyle(.secondary)

@@ -2,6 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 configuration="${1:-release}"
+if [[ "$configuration" == "release" ]]; then
+    ./scripts/fetch-scrcpy.sh
+fi
 swift build -c "$configuration"
 bin_dir="$(swift build -c "$configuration" --show-bin-path)"
 package_dir="$(mktemp -d "$PWD/.build/package.XXXXXX")"
@@ -17,12 +20,17 @@ if [[ -x .build/downloads/platform-tools/adb ]]; then
         cp .build/downloads/platform-tools/NOTICE.txt "$app/Contents/Resources/Platform-Tools-NOTICE.txt"
     fi
 fi
-# Optional. A normal install is detected at runtime; this only embeds a local copy.
-if [[ -x .build/downloads/scrcpy/scrcpy ]]; then
+if [[ -x .build/downloads/scrcpy/scrcpy && -f .build/downloads/scrcpy/scrcpy-server ]]; then
     cp .build/downloads/scrcpy/scrcpy "$app/Contents/Resources/scrcpy"
-    if [[ -f .build/downloads/scrcpy/scrcpy-server ]]; then
-        cp .build/downloads/scrcpy/scrcpy-server "$app/Contents/Resources/scrcpy-server"
+    cp .build/downloads/scrcpy/scrcpy-server "$app/Contents/Resources/scrcpy-server"
+    if [[ -f .build/downloads/scrcpy/LICENSE ]]; then
+        cp .build/downloads/scrcpy/LICENSE "$app/Contents/Resources/scrcpy-LICENSE.txt"
     fi
+fi
+if [[ "$configuration" == "release" ]]; then
+    test -x "$app/Contents/Resources/scrcpy"
+    test -f "$app/Contents/Resources/scrcpy-server"
+    test -f "$app/Contents/Resources/scrcpy-LICENSE.txt"
 fi
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

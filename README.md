@@ -38,7 +38,7 @@ No Android app, cloud account, or internet connection is needed for file transfe
 | USB connection | USB debugging enabled, a data-capable cable, and authorization on the phone |
 | Build tools | Xcode Command Line Tools with Swift 5.9 or later |
 | Android connection tools | [Android SDK Platform Tools / ADB](https://developer.android.com/tools/releases/platform-tools) |
-| Screen mirroring | Optional [scrcpy](https://github.com/Genymobile/scrcpy). Finder does not need it |
+| Screen mirroring | Included in the packaged app via [scrcpy](https://github.com/Genymobile/scrcpy). Finder does not need it |
 
 The packaged build is currently locally signed and **not Apple-notarized**. This is an early development release.
 
@@ -67,7 +67,7 @@ Already paired? Skip pairing and connect directly. Automatic discovery depends o
 
 Select a connected phone, then choose **Mirror screen** in the main window or the menu bar. MacDroid opens scrcpy using that phone’s ADB serial, so the same USB or Wi-Fi authorization used for Finder also carries the picture, keyboard, and pointer. **Stop mirroring** closes the scrcpy window. Quitting MacDroid closes it too.
 
-Install scrcpy with `brew install scrcpy`, or choose the executable with **Select scrcpy…**. A build can also embed `.build/downloads/scrcpy/scrcpy` and `.build/downloads/scrcpy/scrcpy-server`. If none of those is available, MacDroid explains what is missing and leaves file browsing unchanged.
+The packaged app includes scrcpy, so installing the DMG does not require Homebrew. MacDroid uses that bundled copy when it is present. A release build downloads the official macOS arm64 release and checks its published checksums. An unpackaged development build can instead use `brew install scrcpy` or **Select scrcpy…**. If scrcpy cannot be found, MacDroid explains what is missing and leaves file browsing unchanged.
 
 ## Recover a deleted file
 
@@ -77,7 +77,7 @@ Recovered deletions remain on the phone and continue using storage until restore
 
 ## Install
 
-Download the DMG from the [latest release](https://github.com/ZeltaStudio/MacDroid/releases/latest), quit any running copy, and drag **MacDroid.app** into **Applications**. The release includes ADB and a SHA-256 checksum. Saved preferences are preserved.
+Download the DMG from the [latest release](https://github.com/ZeltaStudio/MacDroid/releases/latest), quit any running copy, and drag **MacDroid.app** into **Applications**. The release includes ADB, scrcpy, and a SHA-256 checksum. Saved preferences are preserved.
 
 If images appeared incomplete in an older version, update to **0.2.2 or later**, eject the old phone mount, and remount before reopening the images. Finder and Preview can cache earlier partial previews.
 
@@ -99,7 +99,7 @@ The installer is written to `dist/MacDroid-<version>-macos-arm64.dmg`. Open it a
 
 The build embeds ADB if it is available at `.build/downloads/platform-tools/adb`. Otherwise, install Google's Platform Tools separately and use **Select adb…** in MacDroid. Common Android SDK and Homebrew installation locations are also detected. Bundled tools retain their vendor notices.
 
-Screen mirroring looks for scrcpy in the app bundle, Homebrew, MacPorts, `/usr/local`, and `~/bin`. To embed it, place the executable at `.build/downloads/scrcpy/scrcpy` and, when you have one, the server jar at `.build/downloads/scrcpy/scrcpy-server` before packaging.
+`./scripts/build-app.sh release` downloads scrcpy 5.0.1 for Apple Silicon from the official release, verifies the archive and `scrcpy-server` checksums, and embeds `scrcpy`, `scrcpy-server`, and the scrcpy license in the app. The app uses that bundled copy ahead of a saved path or a Homebrew install. Debug builds embed it only when `.build/downloads/scrcpy/` is already present.
 
 For a development build, run `swift build` or `./scripts/build-app.sh debug`.
 
@@ -122,7 +122,7 @@ Android's access restrictions still apply. MacDroid does not expose protected sy
 - File operations are serialized; large directory listings can be slow, and Finder may cache older contents.
 - Extended attributes, full macOS metadata preservation, and separately selectable SD-card storage are not supported yet.
 - Finder may create `.DS_Store` and `._` metadata files. Its own free-space display may be unavailable; use the app's storage indicator.
-- Screen mirroring needs scrcpy and an authorized ADB connection. It opens in scrcpy’s own window. Unplugging the phone or revoking debugging ends the session.
+- Screen mirroring uses the bundled scrcpy and an authorized ADB connection. It opens in scrcpy’s own window. Unplugging the phone or revoking debugging ends the session.
 
 ## Verification and development
 
