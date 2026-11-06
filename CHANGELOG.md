@@ -1,13 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-06
 
 ### Added
 
-- Mirror and control the phone’s screen from the main window or the menu bar. The packaged app includes scrcpy and uses that copy first. A release build downloads the official Apple Silicon release, checks its checksums, and embeds the binary, server, and license. Finder keeps working when scrcpy is missing.
-- Speed up Finder and Quick Look thumbnails, especially over Wi-Fi. Preview reads reuse a cache of real file bytes. Photos up to 8 MB are fetched once. Larger videos are read from the requested offset instead of copying the whole file. Opening a file still downloads it completely, and partial responses keep the byte ranges fixed in 0.2.2.
-- Empty Recovery, with confirmation, from the recovery window and the menu bar. Permanently delete one recovered item from the list. Optionally delete recovered items older than a chosen number of days; that setting is off unless you turn it on.
-- Put Mirror, Open in Finder, Recovery, and Eject in the main window sidebar. The menu bar is unchanged.
+- Screen mirroring from the sidebar and the menu bar. The packaged app includes scrcpy and uses that copy first. A release build downloads the official Apple Silicon release, checks its checksums, and embeds the binary, server, and license. Finder keeps working when scrcpy is missing.
+- Faster Finder and Quick Look thumbnails, especially over Wi-Fi. Preview reads reuse a cache of real file bytes. Photos up to 8 MB are fetched once. Larger videos are read from the requested offset instead of copying the whole file. Opening a file still downloads it completely, and partial responses keep the byte ranges fixed in 0.2.2.
+- Recovery cleanup: Empty Recovery with confirmation, permanent delete of one recovered item, and an optional age limit that stays off unless you turn it on.
+- A main-window sidebar for Mirror, Open in Finder, Recovery, and Eject. The menu bar is unchanged.
 
 ## 0.2.2 — 2026-11-02
 

@@ -1,4 +1,4 @@
-# MacDroid 0.2.2 — Android files in Finder
+# MacDroid 0.3.0 — Android files in Finder
 
 A native SwiftUI Mac app that exposes Android shared storage in Finder through a local WebDAV bridge backed by ADB. Nothing is installed on Android. Requires macOS 13+ and Android 11+ for cable-free pairing. An authorized USB debugging connection also works.
 

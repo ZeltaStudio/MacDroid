@@ -23,7 +23,7 @@ body:
     id: app-version
     attributes:
       label: MacDroid version
-      placeholder: "0.2.2"
+      placeholder: "0.3.0"
     validations:
       required: true
   - type: input
