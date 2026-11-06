@@ -32,12 +32,10 @@ struct MacDroidApp: App {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var adbPath = ADB.locate() ?? ""
-    @Published var scrcpyPath = UserDefaults.standard.string(forKey: "scrcpyPath") ?? ""
     @Published var mirroring = false
     private var mirrorProcess: Process?
     private var mirrorLogHandle: FileHandle?
     private var mirrorStopRequested = false
-    var activeScrcpyPath: String { ScreenMirror.resolve(preferred: scrcpyPath) ?? "" }
     @Published var pairAddress = ""
     @Published var pairingCode = ""
     @Published var connectAddress = UserDefaults.standard.string(forKey: "connectAddress") ?? ""
@@ -82,13 +80,6 @@ final class AppModel: ObservableObject {
         let panel = NSOpenPanel(); panel.message = "Select adb from Android SDK Platform Tools"; panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url { adbPath = url.path }
     }
-    func chooseScrcpy() {
-        let panel = NSOpenPanel(); panel.message = "Select the scrcpy executable"; panel.canChooseDirectories = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard ScreenMirror.isTool(url.path) else { error = "That file isn’t an executable scrcpy."; return }
-        scrcpyPath = url.path
-        UserDefaults.standard.set(url.path, forKey: "scrcpyPath")
-    }
     private var mirrorDevice: AndroidDevice? {
         if let mountedDevice { return mountedDevice }
         return devices.first { $0.endpoint == selected }
@@ -97,7 +88,7 @@ final class AppModel: ObservableObject {
         guard let device = mirrorDevice else {
             error = "Select a phone before mirroring its screen."; showWindow(); return
         }
-        let tool = activeScrcpyPath
+        let tool = ScreenMirror.resolve() ?? ""
         guard !tool.isEmpty else { error = ScreenMirror.missingToolMessage; showWindow(); return }
         guard !mirroring else { status = "Screen mirroring is already running."; return }
         do {
@@ -454,19 +445,14 @@ struct ContentView: View {
                                     Button(model.mountPath == nil ? "Stop bridge" : "Eject") { model.stop() }.disabled(model.busy || model.transfers.contains(where: \.active))
                                 }
                             }
-                            HStack {
-                                if model.mirroring {
-                                    Button("Stop mirroring") { model.stopMirroring() }
-                                } else {
-                                    Button("Mirror screen", systemImage: "rectangle.on.rectangle") { model.mirrorScreen() }
-                                        .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
-                                }
-                                Button("Select scrcpy…") { model.chooseScrcpy() }
+                            if model.mirroring {
+                                Button("Stop mirroring") { model.stopMirroring() }
+                            } else {
+                                Button("Mirror screen", systemImage: "rectangle.on.rectangle") { model.mirrorScreen() }
+                                    .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
                             }
-                            Text(model.activeScrcpyPath.isEmpty
-                                 ? "The packaged app includes scrcpy. A development build can use Homebrew (brew install scrcpy) or Select scrcpy…. Finder does not need it."
-                                 : "scrcpy: " + model.activeScrcpyPath)
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                            Text("Included with the app. A development build uses Homebrew when scrcpy is not bundled. Finder does not need it.")
+                                .font(.caption).foregroundStyle(.secondary)
                             Text("Deleted files move to MacDroid Recovery on the phone. Restore them using Recovery. Replaced files are not backed up. Private app data stays subject to Android permissions.").font(.caption).foregroundStyle(.secondary)
                         }.padding(8)
                     }

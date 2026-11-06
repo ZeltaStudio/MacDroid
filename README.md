@@ -67,7 +67,7 @@ Already paired? Skip pairing and connect directly. Automatic discovery depends o
 
 Select a connected phone, then choose **Mirror screen** in the main window or the menu bar. MacDroid opens scrcpy using that phone’s ADB serial, so the same USB or Wi-Fi authorization used for Finder also carries the picture, keyboard, and pointer. **Stop mirroring** closes the scrcpy window. Quitting MacDroid closes it too.
 
-The packaged app includes scrcpy, so installing the DMG does not require Homebrew. MacDroid uses that bundled copy when it is present. A release build downloads the official macOS arm64 release and checks its published checksums. An unpackaged development build can instead use `brew install scrcpy` or **Select scrcpy…**. If scrcpy cannot be found, MacDroid explains what is missing and leaves file browsing unchanged.
+The packaged app includes scrcpy, so installing the DMG does not require Homebrew. MacDroid uses that bundled copy when it is present. A release build downloads the official macOS arm64 release and checks its published checksums. An unpackaged development build falls back to `brew install scrcpy`. If scrcpy cannot be found, MacDroid explains what is missing and leaves file browsing unchanged.
 
 ## Recover a deleted file
 
@@ -99,7 +99,7 @@ The installer is written to `dist/MacDroid-<version>-macos-arm64.dmg`. Open it a
 
 The build embeds ADB if it is available at `.build/downloads/platform-tools/adb`. Otherwise, install Google's Platform Tools separately and use **Select adb…** in MacDroid. Common Android SDK and Homebrew installation locations are also detected. Bundled tools retain their vendor notices.
 
-`./scripts/build-app.sh release` downloads scrcpy 5.0.1 for Apple Silicon from the official release, verifies the archive and `scrcpy-server` checksums, and embeds `scrcpy`, `scrcpy-server`, and the scrcpy license in the app. The app uses that bundled copy ahead of a saved path or a Homebrew install. Debug builds embed it only when `.build/downloads/scrcpy/` is already present.
+`./scripts/build-app.sh release` downloads scrcpy 5.0.1 for Apple Silicon from the official release, verifies the archive and `scrcpy-server` checksums, and embeds `scrcpy`, `scrcpy-server`, and the scrcpy license in the app. The app uses that bundled copy ahead of a Homebrew install. Debug builds embed it only when `.build/downloads/scrcpy/` is already present.
 
 For a development build, run `swift build` or `./scripts/build-app.sh debug`.
 

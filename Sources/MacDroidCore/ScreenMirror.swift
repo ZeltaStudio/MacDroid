@@ -12,17 +12,16 @@ public struct ScreenMirrorPlan: Equatable, Sendable {
 }
 
 public enum ScreenMirror {
-    public static let missingToolMessage = "scrcpy isn’t installed. The packaged MacDroid app includes it. For a development build, install it with Homebrew (brew install scrcpy) or choose the scrcpy executable. Finder still works without it."
+    public static let missingToolMessage = "scrcpy isn’t installed. The packaged MacDroid app includes it. For a development build, install it with Homebrew (brew install scrcpy). Finder still works without it."
 
     public static func defaultCandidates(bundleExecutable: String? = Bundle.main.path(forResource: "scrcpy", ofType: nil), home: String? = nil) -> [String] {
         let home = home ?? FileManager.default.homeDirectoryForCurrentUser.path
         return [bundleExecutable, "/opt/homebrew/bin/scrcpy", "/usr/local/bin/scrcpy", "/opt/local/bin/scrcpy", home + "/bin/scrcpy"].compactMap { $0 }
     }
 
-    /// The copy inside the app wins, then an explicit choice, then the usual install locations.
-    public static func resolve(preferred: String?, candidates: [String]? = nil, bundled: String? = Bundle.main.path(forResource: "scrcpy", ofType: nil)) -> String? {
+    /// The copy inside the app wins. Otherwise Homebrew and the other usual install locations are used.
+    public static func resolve(candidates: [String]? = nil, bundled: String? = Bundle.main.path(forResource: "scrcpy", ofType: nil)) -> String? {
         if let bundled, isTool(bundled) { return bundled }
-        if let preferred, !preferred.isEmpty, isTool(preferred) { return preferred }
         return locate(candidates: candidates)
     }
 
