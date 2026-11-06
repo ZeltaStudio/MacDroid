@@ -24,7 +24,8 @@ No Android app, cloud account, or internet connection is needed for file transfe
 - **Readable device names** — distinguish USB and Wi-Fi connections in the device picker and menu.
 - **Transfer controls** — see progress, speed, and estimated time for each transfer stage, or cancel an active transfer.
 - **Recoverable deletion** — deleted files move to a protected recovery folder on the phone. Restore them to their original location without replacing an existing item.
-- **Menu bar access** — mount, open Finder, eject, access recovery, and manage reconnect without keeping the main window open.
+- **Menu bar access** — mount, open Finder, eject, access recovery, mirror the screen, and manage reconnect without keeping the main window open.
+- **Screen mirroring** — view and control the phone in a scrcpy window over the same USB or Wi-Fi ADB connection.
 - **Storage information** — check used space and available capacity on the phone.
 
 ## Requirements
@@ -37,6 +38,7 @@ No Android app, cloud account, or internet connection is needed for file transfe
 | USB connection | USB debugging enabled, a data-capable cable, and authorization on the phone |
 | Build tools | Xcode Command Line Tools with Swift 5.9 or later |
 | Android connection tools | [Android SDK Platform Tools / ADB](https://developer.android.com/tools/releases/platform-tools) |
+| Screen mirroring | Optional [scrcpy](https://github.com/Genymobile/scrcpy). Finder does not need it |
 
 The packaged build is currently locally signed and **not Apple-notarized**. This is an early development release.
 
@@ -60,6 +62,12 @@ The packaged build is currently locally signed and **not Apple-notarized**. This
 Already paired? Skip pairing and connect directly. Automatic discovery depends on your local network; manual IP:port entry remains available.
 
 **Keep MacDroid running while using the mounted volume.** Finish or cancel transfers, then use **Eject** before disconnecting your phone.
+
+## Mirror the screen
+
+Select a connected phone, then choose **Mirror screen** in the main window or the menu bar. MacDroid opens scrcpy using that phone’s ADB serial, so the same USB or Wi-Fi authorization used for Finder also carries the picture, keyboard, and pointer. **Stop mirroring** closes the scrcpy window. Quitting MacDroid closes it too.
+
+Install scrcpy with `brew install scrcpy`, or choose the executable with **Select scrcpy…**. A build can also embed `.build/downloads/scrcpy/scrcpy` and `.build/downloads/scrcpy/scrcpy-server`. If none of those is available, MacDroid explains what is missing and leaves file browsing unchanged.
 
 ## Recover a deleted file
 
@@ -91,12 +99,15 @@ The installer is written to `dist/MacDroid-<version>-macos-arm64.dmg`. Open it a
 
 The build embeds ADB if it is available at `.build/downloads/platform-tools/adb`. Otherwise, install Google's Platform Tools separately and use **Select adb…** in MacDroid. Common Android SDK and Homebrew installation locations are also detected. Bundled tools retain their vendor notices.
 
+Screen mirroring looks for scrcpy in the app bundle, Homebrew, MacPorts, `/usr/local`, and `~/bin`. To embed it, place the executable at `.build/downloads/scrcpy/scrcpy` and, when you have one, the server jar at `.build/downloads/scrcpy/scrcpy-server` before packaging.
+
 For a development build, run `swift build` or `./scripts/build-app.sh debug`.
 
 ## How it works
 
 ```text
 Finder ↔ local WebDAV bridge ↔ ADB ↔ Android shared storage
+scrcpy window ↔ ADB ↔ Android screen
 ```
 
 The SwiftUI app pairs with Android using ADB and exposes shared storage (`/sdcard`) through macOS's built-in WebDAV filesystem. The bridge listens only on `127.0.0.1` and uses a random per-session URL. No filesystem driver or system extension is required.
@@ -111,6 +122,7 @@ Android's access restrictions still apply. MacDroid does not expose protected sy
 - File operations are serialized; large directory listings can be slow, and Finder may cache older contents.
 - Extended attributes, full macOS metadata preservation, and separately selectable SD-card storage are not supported yet.
 - Finder may create `.DS_Store` and `._` metadata files. Its own free-space display may be unavailable; use the app's storage indicator.
+- Screen mirroring needs scrcpy and an authorized ADB connection. It opens in scrcpy’s own window. Unplugging the phone or revoking debugging ends the session.
 
 ## Verification and development
 

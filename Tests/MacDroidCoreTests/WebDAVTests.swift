@@ -178,6 +178,7 @@ struct CheckRunner {
         let suite = WebDAVTests()
         let checks: [(String, () async throws -> Void)] = [
             ("Reconnect policy and transport labels", suite.testReconnectPolicy),
+            ("Screen mirror command", { try suite.testScreenMirrorCommand() }),
             ("Transfer progress and cancellation", suite.testTransferCancellation),
             ("Recoverable deletion and restore", suite.testRecoverableDeletion),
             ("Storage capacity parsing", suite.testStorageParsing),

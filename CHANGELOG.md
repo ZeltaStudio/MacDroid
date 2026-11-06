@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Mirror and control the phone’s screen from the main window or the menu bar. MacDroid launches scrcpy on the same authorized ADB connection when the tool is installed, bundled, or chosen with **Select scrcpy…**. Finder keeps working when scrcpy is missing.
+
 ## 0.2.2 — 2026-11-02
 
 ### Fixed

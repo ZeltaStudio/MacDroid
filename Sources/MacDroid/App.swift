@@ -32,6 +32,12 @@ struct MacDroidApp: App {
 @MainActor
 final class AppModel: ObservableObject {
     @Published var adbPath = ADB.locate() ?? ""
+    @Published var scrcpyPath = UserDefaults.standard.string(forKey: "scrcpyPath") ?? ""
+    @Published var mirroring = false
+    private var mirrorProcess: Process?
+    private var mirrorLogHandle: FileHandle?
+    private var mirrorStopRequested = false
+    var activeScrcpyPath: String { ScreenMirror.resolve(preferred: scrcpyPath) ?? "" }
     @Published var pairAddress = ""
     @Published var pairingCode = ""
     @Published var connectAddress = UserDefaults.standard.string(forKey: "connectAddress") ?? ""
@@ -66,6 +72,7 @@ final class AppModel: ObservableObject {
         terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             // macOS tears down a disconnected WebDAV mount; also attempt normal unmount before exiting.
             MainActor.assumeIsolated {
+                self?.stopMirroring()
                 if let path = self?.mountPath { _ = try? Command.run("/sbin/umount", [path], timeout: 5) }
                 self?.server?.stop()
             }
@@ -74,6 +81,83 @@ final class AppModel: ObservableObject {
     func chooseADB() {
         let panel = NSOpenPanel(); panel.message = "Select adb from Android SDK Platform Tools"; panel.canChooseDirectories = false
         if panel.runModal() == .OK, let url = panel.url { adbPath = url.path }
+    }
+    func chooseScrcpy() {
+        let panel = NSOpenPanel(); panel.message = "Select the scrcpy executable"; panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard ScreenMirror.isTool(url.path) else { error = "That file isn’t an executable scrcpy."; return }
+        scrcpyPath = url.path
+        UserDefaults.standard.set(url.path, forKey: "scrcpyPath")
+    }
+    private var mirrorDevice: AndroidDevice? {
+        if let mountedDevice { return mountedDevice }
+        return devices.first { $0.endpoint == selected }
+    }
+    func mirrorScreen() {
+        guard let device = mirrorDevice else {
+            error = "Select a phone before mirroring its screen."; showWindow(); return
+        }
+        let tool = activeScrcpyPath
+        guard !tool.isEmpty else { error = ScreenMirror.missingToolMessage; showWindow(); return }
+        guard !mirroring else { status = "Screen mirroring is already running."; return }
+        do {
+            let plan = try ScreenMirror.plan(executable: tool, adb: adbPath, serial: device.endpoint, title: device.label, server: ScreenMirror.serverPath(executable: tool))
+            try launchMirror(plan, device: device)
+        } catch {
+            self.error = error.localizedDescription
+            showWindow()
+        }
+    }
+    private func launchMirror(_ plan: ScreenMirrorPlan, device: AndroidDevice) throws {
+        let log = FileManager.default.temporaryDirectory.appendingPathComponent("macdroid-scrcpy-" + UUID().uuidString + ".log")
+        FileManager.default.createFile(atPath: log.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: log)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: plan.executable)
+        process.arguments = plan.arguments
+        var environment = ProcessInfo.processInfo.environment
+        for (key, value) in plan.environment { environment[key] = value }
+        process.environment = environment
+        process.standardOutput = handle
+        process.standardError = handle
+        let session = MirrorSession()
+        process.terminationHandler = { [weak self] proc in
+            DispatchQueue.main.async { self?.finishMirror(proc, log: log, session: session) }
+        }
+        do { try process.run() } catch {
+            try? handle.close(); try? FileManager.default.removeItem(at: log); throw error
+        }
+        mirrorLogHandle = handle
+        mirrorProcess = process
+        mirrorStopRequested = false
+        mirroring = process.isRunning
+        status = "Mirroring \(device.label). Use the scrcpy window to view and control the phone."
+        if !process.isRunning { finishMirror(process, log: log, session: session) }
+    }
+    func stopMirroring() {
+        guard mirroring || mirrorProcess?.isRunning == true else { return }
+        mirrorStopRequested = true
+        if let process = mirrorProcess, process.isRunning { process.terminate() }
+        mirroring = false
+        status = "Screen mirroring stopped."
+    }
+    private func finishMirror(_ process: Process, log: URL, session: MirrorSession) {
+        guard !session.handled else { return }
+        session.handled = true
+        try? mirrorLogHandle?.close(); mirrorLogHandle = nil
+        if mirrorProcess === process { mirrorProcess = nil }
+        let stopped = mirrorStopRequested
+        mirrorStopRequested = false
+        mirroring = false
+        let output = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        try? FileManager.default.removeItem(at: log)
+        guard !stopped, process.terminationStatus != 0 else {
+            if !busy { status = stopped ? "Screen mirroring stopped." : "Screen mirroring ended." }
+            return
+        }
+        let detail = output.split(whereSeparator: \.isNewline).suffix(6).joined(separator: " ")
+        error = detail.isEmpty ? "Screen mirroring stopped unexpectedly." : String(detail.prefix(500))
+        showWindow()
     }
     private func perform(_ message: String, work: @escaping () throws -> String, done: (() -> Void)? = nil, onFailure: (() -> Void)? = nil) {
         busy = true; error = nil; status = message
@@ -252,6 +336,7 @@ final class AppModel: ObservableObject {
             error = "Wait for active operations to finish, or cancel the transfers, before quitting."
             showWindow(); return
         }
+        stopMirroring()
         if mountURL != nil {
             let resume = mountedDevice?.hardwareID
             stop(after: {
@@ -294,6 +379,8 @@ final class AppModel: ObservableObject {
     private func validEndpoint(_ value: String) -> Bool { DeviceDiscovery.validEndpoint(value) }
 
 }
+
+private final class MirrorSession: @unchecked Sendable { var handled = false }
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
@@ -367,6 +454,19 @@ struct ContentView: View {
                                     Button(model.mountPath == nil ? "Stop bridge" : "Eject") { model.stop() }.disabled(model.busy || model.transfers.contains(where: \.active))
                                 }
                             }
+                            HStack {
+                                if model.mirroring {
+                                    Button("Stop mirroring") { model.stopMirroring() }
+                                } else {
+                                    Button("Mirror screen", systemImage: "rectangle.on.rectangle") { model.mirrorScreen() }
+                                        .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
+                                }
+                                Button("Select scrcpy…") { model.chooseScrcpy() }
+                            }
+                            Text(model.activeScrcpyPath.isEmpty
+                                 ? "Screen mirroring needs scrcpy (brew install scrcpy). Choose the executable if it isn’t in a usual location. Finder does not need it."
+                                 : "scrcpy: " + model.activeScrcpyPath)
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                             Text("Deleted files move to MacDroid Recovery on the phone. Restore them using Recovery. Replaced files are not backed up. Private app data stays subject to Android permissions.").font(.caption).foregroundStyle(.secondary)
                         }.padding(8)
                     }
@@ -478,6 +578,12 @@ struct MacDroidMenu: View {
             }
             Button("Find phones") { model.refresh() }.disabled(model.busy)
             if !model.connectAddress.isEmpty { Button("Connect saved Wi-Fi address") { model.connect() }.disabled(model.busy) }
+        }
+        if model.mirroring {
+            Button("Stop screen mirroring") { model.stopMirroring() }
+        } else {
+            Button("Mirror screen") { model.mirrorScreen() }
+                .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
         }
         Toggle("Reconnect automatically", isOn: $model.autoReconnect)
         Divider()

@@ -18,8 +18,9 @@ Keep MacDroid running while using the mounted volume. The menu bar icon stays av
 2. **Readable device names.** The device picker and menu show the phone's reported marketing name/model and a USB or Wi-Fi label. The mounted volume uses the phone name; transport changes appear in the app's status.
 3. **Transfer progress and cancellation.** Finder GET/PUT operations are tracked, including receiving uploads, ADB reads/writes, and delivery to Finder. The app shows bytes, stage progress, speed, and an estimated remaining time for the current stage. Cancel terminates the ADB transfer or local HTTP connection. Uploads are staged before replacement; cancelled staging uploads are removed when the phone is reachable. Finder may display an error or offer to retry. These are per-stage estimates, not whole-folder estimates. Finder background reads and metadata writes may also appear in the list. Recently completed transfers can be cleared.
 4. **Recoverable deletion.** Finder DELETE moves files/folders into `/.MacDroid Recovery/` on shared storage, along with their original location and deletion time. Open Recovery in the app or menu bar to restore. Restore never overwrites an existing item and requires the original parent folder to exist. The recovery folder is protected against modification through this bridge. There is no automatic expiry or permanent-empty command yet: recovered files continue using phone storage. File replacements are not versioned/backed up, and deletions made outside MacDroid are not intercepted.
-5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume; active operations must finish or be cancelled.
-6. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
+5. **Menu bar controls.** Mount an available phone, connect the saved Wi-Fi address, open Finder, access Recovery, mirror the screen, eject, toggle reconnect, or reopen the main window. Quit first ejects the volume and stops mirroring; active operations must finish or be cancelled.
+6. **Screen mirroring.** Mirror screen launches scrcpy with the selected phone’s serial and this app’s ADB. The scrcpy window shows the display and accepts keyboard and pointer control. The executable is the bundled copy, a saved path, or a Homebrew, MacPorts, `/usr/local`, or `~/bin` install. The server jar is passed through `SCRCPY_SERVER_PATH` when it sits next to that executable or in the Homebrew prefix. A missing tool produces an explanation instead of a failed launch. Finder mounting does not require scrcpy.
+7. **Storage capacity.** Used/free space appears in the main window and free space in the menu. It refreshes about every 30 seconds while connected. Finder’s own free-space display may remain unavailable; use the app’s indicator.
 
 ## Architecture and limits
 
@@ -42,7 +43,7 @@ swift build
 ./scripts/build-app.sh release
 ```
 
-The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected.
+The build script packages into a fresh staging directory before replacing the app, avoiding modification of a running signed executable. It embeds ADB when `.build/downloads/platform-tools/adb` exists; otherwise use an installed copy via Select adb. Common Android SDK and Homebrew locations are detected. It embeds scrcpy when `.build/downloads/scrcpy/scrcpy` exists, plus `scrcpy-server` from that directory when present.
 
 Official Google tools used for the local build:
 https://dl.google.com/android/repository/platform-tools-latest-darwin.zip
@@ -69,7 +70,7 @@ MACDROID_TEST_MOUNT=1 swift run MacDroidCheck
 MACDROID_ADB_PATH=/absolute/path/to/adb MACDROID_TEST_SERIAL=your-device-serial swift run MacDroidCheck
 ```
 
-Checks cover reconnect selection/phone identity isolation, transport labels, cancellation of subprocesses and HTTP uploads, byte progress, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
+Checks cover reconnect selection/phone identity isolation, transport labels, scrcpy launch arguments and tool detection, cancellation of subprocesses and HTTP uploads, byte progress, recoverable deletion and restoration, restore conflicts, storage parsing, file lifecycle, locks, overwrites, traversal, foreign destinations, binary and chunked transfers, macOS filesystem mounting, and real Android transfer/recovery operations.
 
 Physical-phone checks create a dedicated `/sdcard/Download/.macdroid-check-UUID` folder. Test files and their recovery records are cleaned up. Existing user files are not changed.
 
@@ -83,6 +84,7 @@ For protocol debugging, launch with `MACDROID_DAV_TRACE=1`. Traces include file 
 - `Sources/MacDroidCore/Recovery.swift`: protected recovery storage, manifests, restoration.
 - `Sources/MacDroidCore/Storage.swift`: validated capacity parsing.
 - `Sources/MacDroidCore/ADB.swift`: command execution, shell quoting, Android file operations.
+- `Sources/MacDroidCore/ScreenMirror.swift`: scrcpy detection, server-jar lookup, and the launch command for the selected phone.
 - `Sources/MacDroidCore/WebDAV.swift`: local server, disk-backed transport, Finder protocol.
 - `Tests/MacDroidCoreTests/`: executable checks and disposable backends.
 
