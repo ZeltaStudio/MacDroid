@@ -444,16 +444,9 @@ private final class MirrorSession: @unchecked Sendable { var handled = false }
 struct ContentView: View {
     @ObservedObject var model: AppModel
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 22) {
-                Image(systemName: "externaldrive.connected.to.line.below.fill").font(.system(size: 42)).foregroundStyle(.mint)
-                Text("MacDroid").font(.largeTitle.bold())
-                Text("Your phone.\nRight in Finder.").font(.title2.weight(.medium))
-                Text("Connect over local Wi-Fi. No Android app, cable, or cloud account.").foregroundStyle(.secondary)
-                Spacer()
-                Label("Local connection", systemImage: "wifi").font(.callout)
-                Text("Android 11 or later\nSame Wi-Fi as this Mac").font(.caption).foregroundStyle(.secondary)
-            }.padding(28).frame(width: 220).frame(maxHeight: .infinity).background(.quaternary.opacity(0.45))
+        NavigationSplitView {
+            ActionSidebar(model: model)
+        } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     GroupBox {
@@ -484,7 +477,7 @@ struct ContentView: View {
                     }
                     GroupBox {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("2  Connect and open Finder").font(.headline)
+                            Text("2  Connect").font(.headline)
                             Text("Close the pairing dialog. Use IP address & Port on the main Wireless debugging screen. The connection port differs from the pairing port.").foregroundStyle(.secondary)
                             HStack {
                                 TextField("Connection IP:port", text: $model.connectAddress).textFieldStyle(.roundedBorder)
@@ -503,22 +496,7 @@ struct ContentView: View {
                                     Text("\(ByteCountFormatter.string(fromByteCount: Int64(clamping: storage.available), countStyle: .file)) free of \(ByteCountFormatter.string(fromByteCount: Int64(clamping: storage.total), countStyle: .file))").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                            if model.mountURL == nil {
-                                Button("Open Android in Finder", systemImage: "folder") { model.mount() }
-                                    .buttonStyle(.borderedProminent).disabled(model.busy || model.selected.isEmpty)
-                            } else {
-                                HStack {
-                                    Button("Open Finder") { model.openFinder() }.disabled(model.busy)
-                                    Button("Recovery") { model.openRecovery() }.disabled(model.busy || model.mountPath == nil)
-                                    Button(model.mountPath == nil ? "Stop bridge" : "Eject") { model.stop() }.disabled(model.busy || model.transfers.contains(where: \.active))
-                                }
-                            }
-                            if model.mirroring {
-                                Button("Stop mirroring") { model.stopMirroring() }
-                            } else {
-                                Button("Mirror screen", systemImage: "rectangle.on.rectangle") { model.mirrorScreen() }
-                                    .disabled(model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil))
-                            }
+                            Text("Mirror, Finder, Recovery, and Eject are in the sidebar.").font(.caption).foregroundStyle(.secondary)
                             Text("Included with the app. A development build uses Homebrew when scrcpy is not bundled. Finder does not need it.")
                                 .font(.caption).foregroundStyle(.secondary)
                             Text("Deleted files move to MacDroid Recovery on the phone. Restore them, or permanently delete them, from Recovery. Automatic deletion is off unless you set an age limit. Replaced files are not backed up.").font(.caption).foregroundStyle(.secondary)
@@ -534,8 +512,58 @@ struct ContentView: View {
                     }
                 }.padding(28)
             }
-        }.onAppear { model.startMonitoring() }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onAppear { model.startMonitoring() }
         .sheet(isPresented: $model.showingRecovery) { RecoveryView(model: model) }
+    }
+}
+
+struct ActionSidebar: View {
+    @ObservedObject var model: AppModel
+    private var transfersActive: Bool { model.transfers.contains(where: \.active) }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "externaldrive.connected.to.line.below.fill").font(.title2).foregroundStyle(.mint)
+                Text("MacDroid").font(.title2.bold())
+            }
+            Text("Your phone, in Finder.").font(.callout).foregroundStyle(.secondary)
+            Divider()
+            Text("Actions").font(.headline)
+            if model.mirroring {
+                command("Stop mirroring", systemImage: "stop.fill", disabled: false) { model.stopMirroring() }
+            } else {
+                command("Mirror screen", systemImage: "rectangle.on.rectangle", disabled: model.adbPath.isEmpty || (model.selected.isEmpty && model.mountURL == nil)) { model.mirrorScreen() }
+            }
+            if model.mountURL == nil {
+                command("Open Android in Finder", systemImage: "folder", prominent: true, disabled: model.busy || model.selected.isEmpty) { model.mount() }
+            } else {
+                command("Open in Finder", systemImage: "folder", disabled: model.busy) { model.openFinder() }
+            }
+            command("Recovery", systemImage: "arrow.uturn.backward.circle", disabled: model.busy || model.mountPath == nil) { model.openRecovery() }
+            command(model.mountURL != nil && model.mountPath == nil ? "Stop bridge" : "Eject", systemImage: model.mountURL != nil && model.mountPath == nil ? "stop.circle" : "eject", disabled: model.mountURL == nil || model.busy || transfersActive) { model.stop() }
+            Spacer()
+            Label("Local connection", systemImage: "wifi").font(.callout)
+            Text("Android 11 or later\nSame Wi-Fi as this Mac").font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .navigationSplitViewColumnWidth(min: 236, ideal: 260, max: 320)
+    }
+    @ViewBuilder
+    private func command(_ title: String, systemImage: String, prominent: Bool = false, disabled: Bool, action: @escaping () -> Void) -> some View {
+        if prominent {
+            Button(action: action) {
+                Label(title, systemImage: systemImage).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.borderedProminent).controlSize(.large).disabled(disabled)
+        } else {
+            Button(action: action) {
+                Label(title, systemImage: systemImage).frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered).controlSize(.large).disabled(disabled)
+        }
     }
 }
 

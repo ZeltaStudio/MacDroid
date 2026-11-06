@@ -81,7 +81,7 @@ For protocol debugging, launch with `MACDROID_DAV_TRACE=1`. Traces include file 
 
 ## Source
 
-- `Sources/MacDroid/App.swift`: SwiftUI window, menu bar, connection/mount lifecycle, recovery and transfer views.
+- `Sources/MacDroid/App.swift`: SwiftUI window, action sidebar, menu bar, connection/mount lifecycle, recovery and transfer views.
 - `Sources/MacDroidCore/Devices.swift`: discovery, identity-based transport selection, reconnecting backend.
 - `Sources/MacDroidCore/Transfers.swift`: progress state, transfer history, cancellation tokens.
 - `Sources/MacDroidCore/Recovery.swift`: protected recovery storage, manifests, restoration.

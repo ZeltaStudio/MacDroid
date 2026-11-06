@@ -50,7 +50,7 @@ The packaged build is currently locally signed and **not Apple-notarized**. This
 1. Enable **Developer options → USB debugging** on Android.
 2. Connect your phone to the Mac and approve the debugging authorization prompt.
 3. Open MacDroid, refresh the device list if needed, and select the **USB** entry.
-4. Click **Open Android in Finder**.
+4. In the sidebar, click **Open Android in Finder**.
 
 ### Over Wi-Fi
 
@@ -58,7 +58,7 @@ The packaged build is currently locally signed and **not Apple-notarized**. This
 2. Enable **Developer options → Wireless debugging** on Android.
 3. Choose **Pair device with pairing code**. Enter that dialog's IP address, port, and six-digit code in MacDroid, then click **Pair**.
 4. Close the pairing dialog. Enter the connection IP address and port from the main Wireless debugging screen, then click **Connect**. The connection port differs from the pairing port.
-5. Select the **Wi-Fi** entry and click **Open Android in Finder**.
+5. Select the **Wi-Fi** entry and, in the sidebar, click **Open Android in Finder**.
 
 Already paired? Skip pairing and connect directly. Automatic discovery depends on your local network; manual IP:port entry remains available.
 
@@ -66,7 +66,7 @@ Already paired? Skip pairing and connect directly. Automatic discovery depends o
 
 ## Mirror the screen
 
-Select a connected phone, then choose **Mirror screen** in the main window or the menu bar. MacDroid opens scrcpy using that phone’s ADB serial, so the same USB or Wi-Fi authorization used for Finder also carries the picture, keyboard, and pointer. **Stop mirroring** closes the scrcpy window. Quitting MacDroid closes it too.
+Select a connected phone, then choose **Mirror screen** in the sidebar or the menu bar. MacDroid opens scrcpy using that phone’s ADB serial, so the same USB or Wi-Fi authorization used for Finder also carries the picture, keyboard, and pointer. **Stop mirroring** closes the scrcpy window. Quitting MacDroid closes it too.
 
 The packaged app includes scrcpy, so installing the DMG does not require Homebrew. MacDroid uses that bundled copy when it is present. A release build downloads the official macOS arm64 release and checks its published checksums. An unpackaged development build falls back to `brew install scrcpy`. If scrcpy cannot be found, MacDroid explains what is missing and leaves file browsing unchanged.
 
