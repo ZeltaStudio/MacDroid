@@ -19,6 +19,7 @@ No Android app, cloud account, or internet connection is needed for file transfe
 ## Features
 
 - **Finder integration** — manage phone files using familiar Finder windows and drag and drop.
+- **Faster previews** — Finder and Quick Look thumbnails for photos and videos reuse a short cached read, which matters most on Wi-Fi. Opening a file still transfers the complete contents.
 - **USB and Wi-Fi** — use an authorized USB debugging connection or Android Wireless debugging.
 - **Automatic reconnect** — remember your phone and reconnect when it becomes available. The connection follows the same physical phone across supported transport changes.
 - **Readable device names** — distinguish USB and Wi-Fi connections in the device picker and menu.
@@ -118,7 +119,7 @@ Android's access restrictions still apply. MacDroid does not expose protected sy
 
 - Reconnecting restores access to the phone; it does not resume interrupted file transfers.
 - Progress and remaining-time estimates apply to the displayed transfer stage, not an entire folder operation.
-- Downloads are staged on the Mac before delivery to Finder and need enough temporary disk space for a complete file.
+- Full-file downloads are staged on the Mac before delivery to Finder and need enough temporary disk space for a complete file. Thumbnail reads transfer a byte range plus a short read-ahead, then reuse it. Photos up to 8 MB are fetched once and cached. The bytes served are always the real file, including ranged reads.
 - File operations are serialized; large directory listings can be slow, and Finder may cache older contents.
 - Extended attributes, full macOS metadata preservation, and separately selectable SD-card storage are not supported yet.
 - Finder may create `.DS_Store` and `._` metadata files. Its own free-space display may be unavailable; use the app's storage indicator.
